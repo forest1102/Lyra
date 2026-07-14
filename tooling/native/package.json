@@ -1,0 +1,16 @@
+{
+  "name": "@lyra/native-tooling",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "cargo test --workspace",
+    "check": "cargo check --workspace",
+    "fmt": "cargo fmt --all",
+    "fmt:check": "cargo fmt --all -- --check",
+    "build:mcp": "cargo build -p lyra-mcp",
+    "build:supercollider": "../../scripts/build-supercollider-headless.sh",
+    "check:supercollider": "../../scripts/check-supercollider.sh",
+    "check:generation": "cargo test -p lyra-desktop --test codex_generation_live -- --ignored --nocapture",
+    "check:runtime": "cargo test -p lyra-desktop --test runtime_live -- --ignored --nocapture"
+  }
+}

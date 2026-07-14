@@ -1,0 +1,8 @@
+{
+  "name": "@lyra/tooling-tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "bun test tooling.test.ts"
+  }
+}
