@@ -1,0 +1,28 @@
+[package]
+name = "lyra-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+name = "lyra_desktop"
+path = "src/lib.rs"
+
+[dependencies]
+lyra-core = { path = "../../../crates/lyra-core" }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tokio.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = "3"

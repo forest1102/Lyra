@@ -1,0 +1,12 @@
+node_modules/
+.turbo/
+.expo/
+dist/
+target/
+*.log
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+apps/desktop/src-tauri/gen/

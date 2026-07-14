@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "maxSourceBytes": 49152,
+  "synthDefCount": { "min": 1, "max": 4 },
+  "allowedSelectors": ["ar", "kr", "ir", "asr", "perc", "freeSelf", "midicps", "midiratio", "dbamp", "clip", "range", "exprange", "linexp", "round"],
+  "allowedClasses": {
+    "oscillators": ["SinOsc", "LFSaw", "LFTri", "Pulse", "VarSaw", "Formant", "Blip"],
+    "noise": ["WhiteNoise", "PinkNoise", "BrownNoise", "ClipNoise", "Dust", "Dust2", "LFNoise0", "LFNoise1", "LFNoise2"],
+    "envelope": ["Env", "EnvGen", "Line", "XLine", "Lag", "Lag2", "Lag3", "Decay2"],
+    "filter": ["LPF", "HPF", "BPF", "BRF", "RLPF", "RHPF", "Resonz", "Ringz", "OnePole", "LeakDC"],
+    "space": ["DelayN", "DelayL", "DelayC", "CombN", "CombL", "CombC", "AllpassN", "AllpassL", "AllpassC", "FreeVerb", "FreeVerb2", "Pan2", "Balance2", "Splay"],
+    "structure": ["SynthDef", "Out", "Mix", "Scale", "Rest", "Done"],
+    "patterns": ["Pbind", "Ppar", "Pseq", "Prand", "Pxrand", "Pwrand", "Pwhite", "Pexprand", "Pbrown", "Pseries", "Pgeom", "Pn", "Pstutter", "Pdup", "Pkey"]
+  },
+  "forbidden": ["Pfunc", "Plazy", "SoundIn", "In", "DiskIn", "BufRd", "GVerb", "Buffer", "Server", "File", "Routine", "fork", ".add", ".play"]
+}

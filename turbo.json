@@ -1,0 +1,71 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "cacheDir": ".turbo/cache",
+  "globalDependencies": ["tsconfig.json", "Cargo.toml", "Cargo.lock"],
+  "globalPassThroughEnv": [
+    "LYRA_SC_BUILD_ROOT",
+    "LYRA_SC_RUNTIME_DIR",
+    "LYRA_SCLANG_PATH",
+    "LYRA_SCSYNTH_PATH",
+    "LYRA_SC_PLUGIN_PATH",
+    "LYRA_CODEX_PATH",
+    "SCLANG",
+    "SCSYNTH",
+    "SC_APP"
+  ],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "check": {
+      "outputs": []
+    },
+    "fmt:check": {
+      "outputs": []
+    },
+    "fmt": {
+      "cache": false
+    },
+    "build:mcp": {
+      "cache": false
+    },
+    "build:desktop": {
+      "dependsOn": ["@lyra/client#build"],
+      "cache": false
+    },
+    "build:supercollider": {
+      "cache": false
+    },
+    "check:supercollider": {
+      "cache": false
+    },
+    "check:generation": {
+      "cache": false
+    },
+    "check:runtime": {
+      "cache": false
+    },
+    "@lyra/native-tooling#test": {
+      "cache": false
+    },
+    "@lyra/native-tooling#check": {
+      "cache": false
+    },
+    "@lyra/native-tooling#fmt:check": {
+      "cache": false
+    }
+  }
+}
