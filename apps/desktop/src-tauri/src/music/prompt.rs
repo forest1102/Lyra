@@ -123,7 +123,7 @@ SinOsc texture => ADSR textureEnv => LPF filter => Gain master => dac;
 TriOsc lead => ADSR leadEnv => Pan2 leadPan => master;
 0.05 => texture.gain;
 0.05 => lead.gain;
-0.12 => master.gain;
+1.0 => master.gain;
 330 => texture.freq;
 523 => lead.freq;
 fun void textureVoice() {{

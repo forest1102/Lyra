@@ -110,7 +110,6 @@ fn generation_prompt_is_compact_and_orders_controls_contract_recipes_quality_the
         motion: "high".into(),
     });
     let text = prompt.to_string();
-    assert!(text.len() <= 6 * 1024, "prompt is {} bytes", text.len());
     assert!(text.contains("deep-space"));
     assert!(text.contains("arrangement=ambient"));
     assert!(text.contains("brightness=low"));
@@ -170,6 +169,46 @@ fn generation_prompt_is_compact_and_orders_controls_contract_recipes_quality_the
             "missing allowlisted class: {allowed_class}"
         );
     }
+}
+
+#[test]
+fn generation_prompt_stays_within_six_kib_for_every_valid_control_combination() {
+    let themes = [
+        "deep-space",
+        "rainy-cabin",
+        "minimal-pulse",
+        "organic-drift",
+    ];
+    let arrangements = ["ambient", "lofi", "minimal-melody"];
+    let levels = ["low", "medium", "high"];
+    let mut cases = 0;
+
+    for theme in themes {
+        for arrangement in arrangements {
+            for brightness in levels {
+                for density in levels {
+                    for motion in levels {
+                        let text = GenerationPrompt::new(GenerationControls {
+                            theme: theme.into(),
+                            arrangement: arrangement.into(),
+                            brightness: brightness.into(),
+                            density: density.into(),
+                            motion: motion.into(),
+                        })
+                        .to_string();
+                        assert!(
+                            text.len() <= 6 * 1024,
+                            "prompt is {} bytes for {theme}/{arrangement}/{brightness}/{density}/{motion}",
+                            text.len()
+                        );
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(cases, 4 * 3 * 3 * 3 * 3);
 }
 
 fn prompt_text(theme: &str, arrangement: &str) -> String {
@@ -268,6 +307,9 @@ fn generation_prompt_provides_a_source_policy_compliant_structure_example() {
 
     let validation = SourcePolicy::v1().validate(source).unwrap();
     assert_eq!(validation.voice_count, 2);
+    assert!(source.contains("0.05 => texture.gain;"));
+    assert!(source.contains("0.05 => lead.gain;"));
+    assert!(source.contains("1.0 => master.gain;"));
     assert!(source.contains("spork ~ textureVoice();"));
     let spork = source.find("spork ~ textureVoice();").unwrap();
     assert!(source[..spork].contains("while (true)"));
