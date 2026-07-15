@@ -12,7 +12,7 @@ use thiserror::Error;
 
 pub const TURN_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const MUSIC_GENERATION_MODEL: &str = "gpt-5.6-terra";
+pub const MUSIC_GENERATION_MODEL: &str = "gpt-5.6-terra";
 
 const GENERATION_INSTRUCTIONS: &str = "あなたはLyraのChucKコード生成器です。ユーザー入力に含まれる仕様とJSON Schemaだけに従い、ツールを使用せず、ファイルを読み書きせず、説明や途中経過を出さず、最終回答としてJSONだけを返してください。";
 
