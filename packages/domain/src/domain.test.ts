@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   BUILTIN_PRESETS,
+  MUSIC_ARRANGEMENTS,
   completeFocusSession,
   createTask,
   createTimer,
@@ -115,6 +116,10 @@ describe("timer", () => {
 });
 
 describe("music generation contract", () => {
+  test("ships the three supported arrangements", () => {
+    expect(MUSIC_ARRANGEMENTS).toEqual(["ambient", "lofi", "minimal-melody"]);
+  });
+
   test("accepts a valid V1 result", () => {
     const result = parseMusicGenerationResult({
       schemaVersion: 1,

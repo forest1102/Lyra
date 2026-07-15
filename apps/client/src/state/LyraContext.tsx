@@ -15,6 +15,7 @@ import {
 import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import { desktopBridge } from "@/services/desktop";
 import { selectionPlaybackAction } from "@/services/desktop";
+import { browserPreviewBpm } from "@/services/musicControls";
 import { playBrowserPreview, stopBrowserPreview } from "@/services/webAudio";
 
 interface LyraState {
@@ -63,7 +64,7 @@ function generatedFixture(request: MusicGenerationRequest): MusicDraft {
     title: `${labels[request.theme]} ${Math.floor(Math.random() * 90 + 10)}`,
     description: "Codexが制約付きSuperColliderパターンとして生成したフォーカスBGMです。",
     ...request,
-    bpm: request.motion === "high" ? 92 : request.motion === "medium" ? 72 : 58,
+    bpm: browserPreviewBpm(request.arrangement, request.motion),
     tailSeconds: 4,
     supercolliderSource: "(~lyraTrack = (synthDefs: [], pattern: Pseq([1], inf));)",
     sourceSha256: "preview",

@@ -9,6 +9,18 @@
     "tooling",
     "tooling/*"
   ],
+  "scripts": {
+    "setup": "bun install --frozen-lockfile",
+    "web:dev": "bunx turbo run dev --filter=@lyra/client",
+    "app:dev": "bunx turbo run dev --filter=@lyra/desktop",
+    "app:build": "bunx turbo run build:desktop --filter=@lyra/desktop",
+    "sc:build": "bunx turbo run build:supercollider --filter=@lyra/native-tooling",
+    "sc:check": "bunx turbo run check:supercollider --filter=@lyra/native-tooling",
+    "mcp:build": "bunx turbo run build:mcp --filter=@lyra/native-tooling",
+    "runtime:check": "bunx turbo run check:runtime --filter=@lyra/native-tooling",
+    "generation:check": "bunx turbo run check:generation --filter=@lyra/native-tooling",
+    "verify": "bunx turbo run test typecheck build check fmt:check"
+  },
   "devDependencies": {
     "@types/react": "^19.2.0",
     "turbo": "latest",

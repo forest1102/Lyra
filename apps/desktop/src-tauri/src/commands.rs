@@ -151,6 +151,7 @@ pub fn list_music_tracks(state: State<'_, AppState>) -> Result<Vec<MusicTrackRec
 #[serde(rename_all = "camelCase")]
 pub struct GenerateMusicRequest {
     theme: String,
+    arrangement: String,
     brightness: String,
     density: String,
     motion: String,
@@ -188,6 +189,7 @@ fn generate_music_blocking(
         &request.brightness,
         &["low", "medium", "high"],
     )?;
+    validate_music_arrangement(&request.arrangement)?;
     validate_control("density", &request.density, &["low", "medium", "high"])?;
     validate_control("motion", &request.motion, &["low", "medium", "high"])?;
     let focus_active = {
@@ -212,6 +214,7 @@ fn generate_music_blocking(
         .generate(
             GenerationControls {
                 theme: request.theme,
+                arrangement: request.arrangement,
                 brightness: request.brightness,
                 density: request.density,
                 motion: request.motion,
@@ -534,5 +537,22 @@ fn validate_control(name: &str, value: &str, allowed: &[&str]) -> Result<(), Str
         Ok(())
     } else {
         Err(format!("invalid {name}: {value}"))
+    }
+}
+
+fn validate_music_arrangement(value: &str) -> Result<(), String> {
+    validate_control("arrangement", value, &["ambient", "lofi", "minimal-melody"])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_music_arrangement;
+
+    #[test]
+    fn accepts_only_supported_music_arrangements() {
+        for arrangement in ["ambient", "lofi", "minimal-melody"] {
+            assert!(validate_music_arrangement(arrangement).is_ok());
+        }
+        assert!(validate_music_arrangement("cinematic-horror").is_err());
     }
 }

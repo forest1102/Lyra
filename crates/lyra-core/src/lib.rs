@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
+use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -279,6 +280,7 @@ pub struct MusicTrackRecord {
     pub title: String,
     pub description: String,
     pub theme: String,
+    pub arrangement: String,
     pub brightness: String,
     pub density: String,
     pub motion: String,
@@ -298,6 +300,7 @@ pub struct NewMusicTrack {
     pub title: String,
     pub description: String,
     pub theme: String,
+    pub arrangement: String,
     pub brightness: String,
     pub density: String,
     pub motion: String,
@@ -315,6 +318,7 @@ pub struct Database {
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let connection = Connection::open(path)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
         let database = Self { connection };
         database.migrate()?;
         Ok(database)
@@ -322,6 +326,7 @@ impl Database {
 
     pub fn open_in_memory() -> Result<Self> {
         let connection = Connection::open_in_memory()?;
+        connection.busy_timeout(Duration::from_secs(5))?;
         let database = Self { connection };
         database.migrate()?;
         Ok(database)
@@ -332,6 +337,12 @@ impl Database {
             r#"
             PRAGMA foreign_keys = ON;
             PRAGMA journal_mode = WAL;
+            "#,
+        )?;
+        let transaction =
+            Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        transaction.execute_batch(
+            r#"
 
             CREATE TABLE IF NOT EXISTS schema_migrations (
               version INTEGER PRIMARY KEY,
@@ -401,6 +412,22 @@ impl Database {
               ('deep-focus', 'Deep Focus', 50, 10, 20, 3, 1);
             "#,
         )?;
+        let version: i64 = transaction.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get(0),
+        )?;
+        if version < 2 {
+            transaction.execute_batch(
+                r#"
+                ALTER TABLE music_tracks ADD COLUMN arrangement TEXT NOT NULL DEFAULT 'ambient'
+                  CHECK(arrangement IN ('ambient', 'lofi', 'minimal-melody'));
+                INSERT INTO schema_migrations(version, applied_at)
+                  VALUES(2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                "#,
+            )?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -639,6 +666,12 @@ impl Database {
         if !(40..=120).contains(&input.bpm) || !(0..=8).contains(&input.tail_seconds) {
             return Err(LyraError::InvalidInput("invalid track metadata".into()));
         }
+        if !matches!(
+            input.arrangement.as_str(),
+            "ambient" | "lofi" | "minimal-melody"
+        ) {
+            return Err(LyraError::InvalidInput("invalid music arrangement".into()));
+        }
         std::fs::create_dir_all(&input.directory)?;
         let id = Uuid::new_v4().to_string();
         let source_path = input.directory.join(format!("{id}.scd"));
@@ -646,14 +679,15 @@ impl Database {
         let source_sha256 = format!("{:x}", Sha256::digest(input.source.as_bytes()));
         let created_at = Utc::now().to_rfc3339();
         self.connection.execute(
-            "INSERT INTO music_tracks(id, parent_track_id, title, description, theme, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, created_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO music_tracks(id, parent_track_id, title, description, theme, arrangement, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, created_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id,
                 input.parent_track_id,
                 input.title,
                 input.description,
                 input.theme,
+                input.arrangement,
                 input.brightness,
                 input.density,
                 input.motion,
@@ -671,7 +705,7 @@ impl Database {
 
     pub fn list_music_tracks(&self) -> Result<Vec<MusicTrackRecord>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, parent_track_id, title, description, theme, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, rating, favorite, created_at FROM music_tracks ORDER BY created_at DESC",
+            "SELECT id, parent_track_id, title, description, theme, arrangement, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, rating, favorite, created_at FROM music_tracks ORDER BY created_at DESC",
         )?;
         let rows = statement.query_map([], map_music_track)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -681,7 +715,7 @@ impl Database {
     pub fn get_music_track(&self, id: &str) -> Result<Option<MusicTrackRecord>> {
         self.connection
             .query_row(
-                "SELECT id, parent_track_id, title, description, theme, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, rating, favorite, created_at FROM music_tracks WHERE id = ?1",
+                "SELECT id, parent_track_id, title, description, theme, arrangement, brightness, density, motion, bpm, tail_seconds, source_path, source_sha256, canonical_seed, rating, favorite, created_at FROM music_tracks WHERE id = ?1",
                 [id],
                 map_music_track,
             )
@@ -726,17 +760,18 @@ fn map_music_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<MusicTrackRecord
         title: row.get(2)?,
         description: row.get(3)?,
         theme: row.get(4)?,
-        brightness: row.get(5)?,
-        density: row.get(6)?,
-        motion: row.get(7)?,
-        bpm: row.get(8)?,
-        tail_seconds: row.get(9)?,
-        source_path: row.get(10)?,
-        source_sha256: row.get(11)?,
-        canonical_seed: row.get(12)?,
-        rating: row.get(13)?,
-        favorite: row.get(14)?,
-        created_at: row.get(15)?,
+        arrangement: row.get(5)?,
+        brightness: row.get(6)?,
+        density: row.get(7)?,
+        motion: row.get(8)?,
+        bpm: row.get(9)?,
+        tail_seconds: row.get(10)?,
+        source_path: row.get(11)?,
+        source_sha256: row.get(12)?,
+        canonical_seed: row.get(13)?,
+        rating: row.get(14)?,
+        favorite: row.get(15)?,
+        created_at: row.get(16)?,
     })
 }
 

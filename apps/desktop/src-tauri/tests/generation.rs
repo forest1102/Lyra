@@ -42,6 +42,7 @@ fn json(source: &str) -> String {
 fn controls() -> GenerationControls {
     GenerationControls {
         theme: "deep-space".into(),
+        arrangement: "ambient".into(),
         brightness: "medium".into(),
         density: "low".into(),
         motion: "low".into(),
@@ -61,6 +62,7 @@ fn repairs_invalid_codex_output_only_once() {
     assert!(draft.supercollider_source.contains("_voice_1"));
     assert!(!draft.supercollider_source.contains("\\lyra_voice_1"));
     assert_eq!(draft.audio_validation, "required");
+    assert_eq!(draft.arrangement, "ambient");
 }
 
 #[test]

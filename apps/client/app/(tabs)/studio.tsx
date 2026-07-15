@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { MUSIC_THEMES, type MusicGenerationRequest, type MusicIntensity, type MusicTheme } from "@lyra/domain";
+import { MUSIC_ARRANGEMENTS, MUSIC_THEMES, type MusicArrangement, type MusicGenerationRequest, type MusicIntensity, type MusicTheme } from "@lyra/domain";
 import { useLyra } from "@/state/LyraContext";
 import { Button, Card, PageHeader, Pill, Screen, uiStyles } from "@/ui/components";
 import { colors } from "@/ui/theme";
 import {
   generationErrorMessage,
   generationProgressLabel,
+  arrangementLabel,
   intensityLabel,
   previewErrorMessage,
   themeLabel
@@ -16,6 +17,7 @@ import {
   runMusicGeneration,
   type MusicGenerationPhase
 } from "@/services/musicGeneration";
+import { DEFAULT_MUSIC_GENERATION_REQUEST } from "@/services/musicControls";
 
 const themeInfo: Record<MusicTheme, { name: string; glyph: string; description: string }> = {
   "deep-space": { name: themeLabel("deep-space"), glyph: "✦", description: "広い残響とゆっくりした倍音" },
@@ -37,14 +39,22 @@ function Control({ label, value, onChange }: { label: string; value: MusicIntens
   );
 }
 
+function ArrangementControl({ value, onChange }: { value: MusicArrangement; onChange: (value: MusicArrangement) => void }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={uiStyles.label}>曲調</Text>
+      <View style={uiStyles.row}>
+        {MUSIC_ARRANGEMENTS.map((candidate) => (
+          <Pill key={candidate} label={arrangementLabel(candidate)} active={value === candidate} onPress={() => onChange(candidate)} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function StudioScreen() {
   const { draft, generateTrack, previewDraft, saveDraft, discardDraft } = useLyra();
-  const [request, setRequest] = useState<MusicGenerationRequest>({
-    theme: "deep-space",
-    brightness: "medium",
-    density: "medium",
-    motion: "low"
-  });
+  const [request, setRequest] = useState<MusicGenerationRequest>(DEFAULT_MUSIC_GENERATION_REQUEST);
   const [generationPhase, setGenerationPhase] = useState<MusicGenerationPhase>("idle");
   const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +64,7 @@ export default function StudioScreen() {
   return (
     <Screen>
       <PageHeader eyebrow="制約から音楽をつくる" title="BGM制作" />
-      <Text style={uiStyles.body}>テーマと3つの質感だけを選び、Codexが許可API内でSuperColliderコードを生成します。タイマーとは独立しています。</Text>
+      <Text style={uiStyles.body}>テーマ、曲調、3つの質感を選び、Codexが許可API内でSuperColliderコードを生成します。タイマーとは独立しています。</Text>
       <View style={styles.themeGrid}>
         {MUSIC_THEMES.map((theme) => {
           const info = themeInfo[theme];
@@ -70,6 +80,9 @@ export default function StudioScreen() {
         })}
       </View>
       <Card>
+        <View style={{ marginBottom: 18 }}>
+          <ArrangementControl value={request.arrangement} onChange={(arrangement) => setRequest({ ...request, arrangement })} />
+        </View>
         <View style={[uiStyles.split, { justifyContent: "space-between" }]}>
           <Control label="明るさ" value={request.brightness} onChange={(brightness) => setRequest({ ...request, brightness })} />
           <Control label="密度" value={request.density} onChange={(density) => setRequest({ ...request, density })} />
