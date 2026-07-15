@@ -148,12 +148,40 @@ Lyra starts one local `codex app-server` process on first generation. Each track
 
 Codex authentication remains owned by the separately installed Codex CLI. Lyra does not store API keys.
 
-## MCP task tool
+## Codex plugin
+
+The Codex plugin manifest, arm64 MCP executable, and `$adding-lyra-tasks` Skill are tracked under `plugins/lyra`. Register this repository as a local marketplace and install it through the native Codex plugin commands:
+
+```sh
+codex plugin marketplace add .
+codex plugin add lyra@lyra-local
+```
+
+No repository installer mutates home-directory configuration or copies plugin files. Codex reads the tracked marketplace and creates its own cache. Start a new Codex task after installation so it loads the Skill and MCP server.
+
+The server uses Lyra's default database at `~/Library/Application Support/app.lyra.focus/lyra.db` and exposes only:
+
+```ts
+add_task({
+  title: string,
+  list: "today" | "backlog",
+  estimatedPomodoros?: number
+})
+```
+
+## MCP task tool development
 
 Build the server:
 
 ```sh
 bun run mcp:build
+```
+
+When the release binary changes, replace the bundled executable before reinstalling the plugin:
+
+```sh
+/Users/murabito/.cargo/bin/cargo build --release -p lyra-mcp
+cp target/release/lyra-mcp plugins/lyra/bin/lyra-mcp
 ```
 
 Register the resulting executable in Codex configuration, replacing the paths with the local checkout and Lyra database location:
@@ -164,16 +192,6 @@ command = "/absolute/path/to/Lyra/target/debug/lyra-mcp"
 
 [mcp_servers.lyra.env]
 LYRA_DB_PATH = "/Users/you/Library/Application Support/app.lyra.focus/lyra.db"
-```
-
-The server exposes only:
-
-```ts
-add_task({
-  title: string,
-  list: "today" | "backlog",
-  estimatedPomodoros?: number
-})
 ```
 
 The desktop UI polls the shared WAL-mode database every 1.5 seconds, keeping MCP additions within the two-second reflection target.

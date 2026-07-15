@@ -1,0 +1,26 @@
+{
+  "name": "lyra",
+  "version": "0.1.0",
+  "description": "CodexからLyraへフォーカスタスクを追加するローカルプラグイン",
+  "author": {
+    "name": "forest1102"
+  },
+  "repository": "https://github.com/forest1102/Lyra",
+  "license": "MIT",
+  "keywords": ["lyra", "focus", "pomodoro", "tasks"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Lyra",
+    "shortDescription": "CodexからLyraへタスクを追加します。",
+    "longDescription": "自然文からTodayまたはBacklogのタスクとPomodoro見積りを抽出し、ローカルのLyraへ追加します。",
+    "developerName": "forest1102",
+    "category": "Productivity",
+    "capabilities": ["Write", "Local"],
+    "defaultPrompt": [
+      "LyraのBacklogに「資料を整理する」を追加して",
+      "今日のLyraに「請求書を送る」を2ポモドーロで追加して",
+      "あとでやることをLyraのタスクとして整理して"
+    ]
+  }
+}
