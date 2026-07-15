@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
+pub use crate::music::prompt::{GenerationControls, GenerationPrompt};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -10,68 +9,6 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 const TURN_TIMEOUT: Duration = Duration::from_secs(120);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerationControls {
-    pub theme: String,
-    pub brightness: String,
-    pub density: String,
-    pub motion: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct GenerationPrompt {
-    controls: GenerationControls,
-}
-
-impl GenerationPrompt {
-    pub fn new(controls: GenerationControls) -> Self {
-        Self { controls }
-    }
-
-    pub fn repair(&self, diagnostics: &str) -> String {
-        format!(
-            "{}\n\n前回の出力は検証に失敗しました。診断: {}\n音楽的な意図と指定値を維持し、制約を満たす修正版JSONだけを返してください。",
-            self,
-            diagnostics
-        )
-    }
-}
-
-impl fmt::Display for GenerationPrompt {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            r#"Lyra向けの集中用BGMを1曲生成してください。
-
-指定:
-- theme={theme}
-- brightness={brightness}
-- density={density}
-- motion={motion}
-
-出力は指定JSON Schemaに従うJSONだけにしてください。supercolliderSourceは評価時に再生やファイル操作を起こさず、必ず次の形にします。
-titleとdescriptionは日本語で書いてください。
-(
-~lyraTrack = (
-  synthDefs: [SynthDef(\lyra_voice_1, {{ |out=0, amp=0.08, gate=1, pan=0, freq=220|
-    var env = EnvGen.kr(Env.asr(0.5, 1, 3), gate, doneAction: Done.freeSelf);
-    Out.ar(out, Pan2.ar(SinOsc.ar(freq), pan) * amp * env);
-  }})],
-  pattern: Pbind(\instrument, \lyra_voice_1, \dur, Pseq([1, 2], inf), \amp, 0.08)
-);
-)
-
-SynthDefは1〜4個、名前は\lyra_voice_1〜\lyra_voice_4、全てout/amp/gate/panとEnvGen/Done.freeSelfを持たせます。
-許可UGen・Patternだけを使い、Pfunc、Plazy、SoundIn、In、DiskIn、BufRd、GVerb、Buffer、Server、File、Routine、fork、.add、.playは使いません。
-外部サンプル、マイク、Quarks、追加プラグイン、\out/\groupのPattern指定は禁止です。durは0.0625〜32、ampは0〜0.2に収め、Patternは無限に継続させます。"#,
-            theme = self.controls.theme,
-            brightness = self.controls.brightness,
-            density = self.controls.density,
-            motion = self.controls.motion,
-        )
-    }
-}
 
 pub fn generation_output_schema() -> Value {
     json!({

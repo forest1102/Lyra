@@ -49,10 +49,13 @@ export type TimerEvent =
 
 export const MUSIC_THEMES = ["deep-space", "rainy-cabin", "minimal-pulse", "organic-drift"] as const;
 export type MusicTheme = typeof MUSIC_THEMES[number];
+export const MUSIC_ARRANGEMENTS = ["ambient", "lofi", "minimal-melody"] as const;
+export type MusicArrangement = typeof MUSIC_ARRANGEMENTS[number];
 export type MusicIntensity = "low" | "medium" | "high";
 
 export interface MusicGenerationRequest {
   theme: MusicTheme;
+  arrangement: MusicArrangement;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;
@@ -75,6 +78,7 @@ export interface MusicTrack {
   title: string;
   description: string;
   theme: MusicTheme;
+  arrangement: MusicArrangement;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;
@@ -94,6 +98,7 @@ export interface MusicDraft {
   title: string;
   description: string;
   theme: MusicTheme;
+  arrangement: MusicArrangement;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;

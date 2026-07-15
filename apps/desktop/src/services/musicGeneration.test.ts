@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { MusicDraft, MusicGenerationRequest } from "../domain";
 import { runMusicGeneration, type MusicGenerationPhase } from "./musicGeneration";
 
-const request: MusicGenerationRequest = { theme: "deep-space", brightness: "medium", density: "medium", motion: "low" };
+const request: MusicGenerationRequest = { theme: "deep-space", arrangement: "ambient", brightness: "medium", density: "medium", motion: "low" };
 
 function draft(audioValidation: MusicDraft["audioValidation"] = "required"): MusicDraft {
   return {

@@ -123,6 +123,7 @@ describe("デスクトップIPC", () => {
 
     await expect(desktopBridge.generateTrack({
       theme: "deep-space",
+      arrangement: "ambient",
       brightness: "medium",
       density: "medium",
       motion: "low"

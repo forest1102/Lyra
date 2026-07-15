@@ -9,3 +9,6 @@ target/
 *.db-wal
 .DS_Store
 apps/desktop/src-tauri/gen/
+
+# Machine-local Codex configuration
+/.codex/config.toml

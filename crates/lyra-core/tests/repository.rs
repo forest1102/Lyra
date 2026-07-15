@@ -9,6 +9,7 @@ fn track_fixture(directory: &Path, parent_track_id: Option<String>, seed: i64) -
         title: format!("Track {seed}"),
         description: "A generated focus track".into(),
         theme: "deep-space".into(),
+        arrangement: "minimal-melody".into(),
         brightness: "medium".into(),
         density: "medium".into(),
         motion: "low".into(),
@@ -29,6 +30,109 @@ fn migrates_and_seeds_builtin_presets() {
     assert_eq!(presets[0].name, "Sprint");
     assert_eq!(presets[1].focus_minutes, 25);
     assert_eq!(presets[2].short_break_minutes, 10);
+}
+
+#[test]
+fn migrates_existing_v1_tracks_to_ambient() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("v1.db");
+    {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE schema_migrations (
+                  version INTEGER PRIMARY KEY,
+                  applied_at TEXT NOT NULL
+                );
+                INSERT INTO schema_migrations VALUES(1, '2026-07-15T00:00:00Z');
+                CREATE TABLE music_tracks (
+                  id TEXT PRIMARY KEY,
+                  parent_track_id TEXT REFERENCES music_tracks(id),
+                  title TEXT NOT NULL,
+                  description TEXT NOT NULL,
+                  theme TEXT NOT NULL,
+                  brightness TEXT NOT NULL,
+                  density TEXT NOT NULL,
+                  motion TEXT NOT NULL,
+                  bpm INTEGER NOT NULL,
+                  tail_seconds INTEGER NOT NULL,
+                  source_path TEXT NOT NULL UNIQUE,
+                  source_sha256 TEXT NOT NULL,
+                  canonical_seed INTEGER NOT NULL,
+                  rating TEXT,
+                  favorite INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                );
+                INSERT INTO music_tracks VALUES(
+                  'legacy-track', NULL, 'Legacy', 'Existing track', 'deep-space',
+                  'medium', 'medium', 'low', 64, 4, '/tmp/legacy.scd', 'hash', 42,
+                  NULL, 0, '2026-07-15T00:00:00Z'
+                );
+                "#,
+            )
+            .unwrap();
+    }
+
+    let database = Database::open(&path).unwrap();
+    let track = database.get_music_track("legacy-track").unwrap().unwrap();
+    assert_eq!(track.arrangement, "ambient");
+}
+
+#[test]
+fn rolls_back_v2_schema_change_when_migration_version_cannot_be_recorded() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-v2.db");
+    {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE schema_migrations (
+                  version INTEGER PRIMARY KEY,
+                  applied_at TEXT NOT NULL
+                );
+                INSERT INTO schema_migrations VALUES(1, '2026-07-15T00:00:00Z');
+                CREATE TABLE music_tracks (
+                  id TEXT PRIMARY KEY,
+                  parent_track_id TEXT REFERENCES music_tracks(id),
+                  title TEXT NOT NULL,
+                  description TEXT NOT NULL,
+                  theme TEXT NOT NULL,
+                  brightness TEXT NOT NULL,
+                  density TEXT NOT NULL,
+                  motion TEXT NOT NULL,
+                  bpm INTEGER NOT NULL,
+                  tail_seconds INTEGER NOT NULL,
+                  source_path TEXT NOT NULL UNIQUE,
+                  source_sha256 TEXT NOT NULL,
+                  canonical_seed INTEGER NOT NULL,
+                  rating TEXT,
+                  favorite INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                );
+                CREATE TRIGGER reject_v2
+                BEFORE INSERT ON schema_migrations
+                WHEN NEW.version = 2
+                BEGIN
+                  SELECT RAISE(ABORT, 'reject v2');
+                END;
+                "#,
+            )
+            .unwrap();
+    }
+
+    assert!(Database::open(&path).is_err());
+
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let arrangement_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('music_tracks') WHERE name = 'arrangement'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(arrangement_columns, 0);
 }
 
 #[test]
@@ -143,6 +247,8 @@ fn saves_variation_as_a_child_track() {
     assert_eq!(tracks.len(), 2);
     assert_eq!(child.parent_track_id.as_deref(), Some(parent.id.as_str()));
     assert_eq!(child.canonical_seed, 84);
+    assert_eq!(parent.arrangement, "minimal-melody");
+    assert_eq!(child.arrangement, "minimal-melody");
 }
 
 #[test]

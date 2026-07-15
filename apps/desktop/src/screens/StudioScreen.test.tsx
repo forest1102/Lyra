@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -40,4 +40,22 @@ test("試聴ボタンが再生中は停止に切り替わる", async () => {
   view.rerender(<StudioScreen />);
   await user.click(screen.getByRole("button", { name: "■ 停止" }));
   expect(context.stopMusic).toHaveBeenCalledOnce();
+});
+
+test("選択した曲調をBGM生成要求に含める", async () => {
+  const user = userEvent.setup();
+  context.generateTrack.mockReset().mockResolvedValue({
+    ...context.draft,
+    arrangement: "lofi",
+    audioValidation: "deferred_until_focus_ends"
+  });
+  render(<StudioScreen />);
+
+  await user.click(screen.getByRole("button", { name: "Lo-fi" }));
+  await user.click(screen.getByRole("button", { name: "生成する" }));
+
+  await waitFor(() => expect(context.generateTrack).toHaveBeenCalledWith(
+    expect.objectContaining({ arrangement: "lofi" }),
+    expect.any(Function)
+  ));
 });
