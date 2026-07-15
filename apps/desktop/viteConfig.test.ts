@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -6,7 +6,7 @@ import {
   assertWebChuckRuntimeAssets,
   WEBCHUCK_ASSET_ROOT,
   WEBCHUCK_SOURCE_DIRECTORY,
-} from "./viteWebChuck";
+} from "./vite.config";
 
 const temporaryDirectories: string[] = [];
 
@@ -29,10 +29,5 @@ describe("WebChucK Vite integration", () => {
     writeFileSync(resolve(directory, "webchuck.js"), "modified");
 
     expect(() => assertWebChuckRuntimeAssets(directory)).toThrow(/SHA-256/);
-  });
-
-  test("flattens package assets into the runtime URL root", () => {
-    const integrationSource = readFileSync(new URL("./viteWebChuck.ts", import.meta.url), "utf8");
-    expect(integrationSource).toContain("rename: { stripBase: true }");
   });
 });

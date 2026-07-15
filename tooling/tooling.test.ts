@@ -63,8 +63,11 @@ describe("repository tooling", () => {
 
     expect(desktop.dependencies.webchuck).toBe("github:ccrma/webchuck#v1.2.11");
     expect(desktop.devDependencies["vite-plugin-static-copy"]).toBe("4.1.1");
+    expect(desktop.devDependencies.tsx).toBeUndefined();
     expect(existsSync(resolve(root, "apps/desktop/public/webchuck"))).toBe(false);
-    expect(viteConfig).toContain("webChuckRuntime");
+    expect(existsSync(resolve(root, "apps/desktop/viteWebChuck.ts"))).toBe(false);
+    expect(viteConfig).toContain("viteStaticCopy");
+    expect(viteConfig).toContain("assertWebChuckRuntimeAssets");
 
     const assets = {
       "webchuck.js": "2867257bde39f389f67eeaebb5f32adc5c85a3dfa66600139e2140de978ca0c6",

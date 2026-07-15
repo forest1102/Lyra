@@ -8,7 +8,7 @@
     "build": "vite build",
     "build:desktop": "tauri build --bundles app",
     "build:e2e": "tauri build --debug --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
-    "test": "vitest run --root ../.. apps/desktop/src apps/desktop/viteWebChuck.test.ts",
+    "test": "vitest run --root ../.. apps/desktop/src apps/desktop/viteConfig.test.ts",
     "test:e2e": "bun e2e/run.ts",
     "typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json"
   },
@@ -35,7 +35,6 @@
     "@wdio/tauri-plugin": "^1.2.0",
     "@wdio/tauri-service": "^1.2.0",
     "jsdom": "^27.2.0",
-    "tsx": "^4",
     "vite": "^7.2.2",
     "vite-plugin-static-copy": "4.1.1"
   }
