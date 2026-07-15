@@ -30,14 +30,51 @@ scripts/build-supercollider-headless.sh
 ## Prerequisites
 
 - Bun 1.3.10
-- Rust stable (`cargo` and `rustc`); Nix can provide it if it is not installed globally
+- Rust 1.96.1 (`cargo`, `rustc`, and `rustfmt`)
 - Codex CLI 0.139+ installed and authenticated
 - SuperCollider 3.14.1 installed at `/Applications/SuperCollider.app`
+- Xcode Command Line Tools
 
-Install JavaScript dependencies:
+### Install with Nix
+
+Use Nix only to install the native development tools into your user profile. Rust itself is managed by `rustup` so the resulting `cargo` and `rustc` behave the same as the non-Nix setup.
 
 ```sh
-bun install
+xcode-select --install
+nix --extra-experimental-features 'nix-command flakes' profile install nixpkgs#rustup nixpkgs#cmake nixpkgs#ninja
+curl -fsSL https://bun.com/install | bash -s "bun-v1.3.10"
+```
+
+Open a new terminal after installation. From this point onward, no project command requires `nix develop`, `nix shell`, or another Nix command.
+
+### Install without Nix
+
+```sh
+xcode-select --install
+brew install cmake ninja
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+curl -fsSL https://bun.com/install | bash -s "bun-v1.3.10"
+```
+
+Open a new terminal after installation.
+
+### Project setup
+
+Both installation methods use the same command from here onward:
+
+```sh
+rustup toolchain install 1.96.1 --profile minimal --component rustfmt
+bun run setup
+```
+
+Confirm the toolchain if setup fails:
+
+```sh
+bun --version
+rustc --version
+cargo --version
+cmake --version
+ninja --version
 ```
 
 ## Development
@@ -45,19 +82,19 @@ bun install
 Run the Expo web UI:
 
 ```sh
-bunx turbo run dev --filter=@lyra/client
+bun run web:dev
 ```
 
-Run the Tauri desktop app when Rust is installed globally:
+Run the Tauri desktop app:
 
 ```sh
-bunx turbo run dev --filter=@lyra/desktop
+bun run app:dev
 ```
 
-With Nix-provided Rust:
+Create the desktop app build:
 
 ```sh
-nix shell nixpkgs#cargo nixpkgs#rustc -c bunx turbo run dev --filter=@lyra/desktop
+bun run app:build
 ```
 
 The app stores SQLite and generated `.scd` files under the macOS application data directory for `app.lyra.focus`. Closing the main window hides it; the Rust timer and music runtime continue. Quitting marks running focus sessions as interrupted.
@@ -77,7 +114,7 @@ Automated tests lock the prompt sections and numeric constraints so they cannot 
 Run this before BGM generation or playback work:
 
 ```sh
-bunx turbo run check:supercollider --filter=@lyra/native-tooling
+bun run sc:check
 ```
 
 The gate performs `sclang start → scsynth boot → 440 Hz for two seconds → clean shutdown`. On the current macOS 26.5.2 development machine, the universal SuperCollider 3.14.1 `sclang` aborts before language startup with:
@@ -90,7 +127,7 @@ Incompatible processor. This Qt build requires the following features:
 Build and install the tested arm64 headless language runtime with:
 
 ```sh
-bunx turbo run build:supercollider --filter=@lyra/native-tooling
+bun run sc:build
 ```
 
 Lyra automatically prefers that runtime from its application-data directory while continuing to use the official app's arm64 `scsynth` and standard plugins. `LYRA_SCLANG_PATH`, `LYRA_SCSYNTH_PATH`, and `LYRA_SC_PLUGIN_PATH` can override all three paths. The compatibility gate can be pointed at a custom runtime with `SCLANG`, `SCSYNTH`, or `SC_APP`.
@@ -124,7 +161,7 @@ Codex authentication remains owned by the separately installed Codex CLI. Lyra d
 Build the server:
 
 ```sh
-nix shell nixpkgs#cargo -c bunx turbo run build:mcp --filter=@lyra/native-tooling
+bun run mcp:build
 ```
 
 Register the resulting executable in Codex configuration, replacing the paths with the local checkout and Lyra database location:
@@ -152,15 +189,15 @@ The desktop UI polls the shared WAL-mode database every 1.5 seconds, keeping MCP
 ## Verification
 
 ```sh
-bun install --frozen-lockfile
-nix shell nixpkgs#cargo nixpkgs#rustfmt -c bunx turbo run test typecheck build check fmt:check
-nix shell nixpkgs#cargo nixpkgs#rustc -c bunx turbo run build:desktop --filter=@lyra/desktop
-SCLANG=/path/to/headless/sclang bunx turbo run check:supercollider --filter=@lyra/native-tooling
-nix shell nixpkgs#cargo -c bunx turbo run check:runtime --filter=@lyra/native-tooling
-nix shell nixpkgs#cargo -c bunx turbo run check:generation --filter=@lyra/native-tooling
+bun run setup
+bun run verify
+bun run app:build
+SCLANG=/path/to/headless/sclang bun run sc:check
+bun run runtime:check
+bun run generation:check
 ```
 
-On macOS 26.5.2, run `bunx turbo run build:supercollider --filter=@lyra/native-tooling` first and then point the gate at the installed headless binary if Lyra has not yet discovered it. The short audio gate passes; long-running real-audio endurance checks—50-minute focus, 100 pause/resume cycles, process-kill recovery, and the 4 themes × 3 tracks human listening score—remain release QA.
+On macOS 26.5.2, run `bun run sc:build` first and then point the gate at the installed headless binary if Lyra has not yet discovered it. The short audio gate passes; long-running real-audio endurance checks—50-minute focus, 100 pause/resume cycles, process-kill recovery, and the 4 themes × 3 tracks human listening score—remain release QA.
 
 ## Security boundary
 

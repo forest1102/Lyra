@@ -16,7 +16,7 @@ if [ ! -d "$SOURCE" ]; then
   tar -xf "$ARCHIVE" -C "$CACHE_ROOT"
 fi
 
-nix shell nixpkgs#cmake nixpkgs#ninja -c cmake \
+cmake \
   -S "$SOURCE" \
   -B "$BUILD" \
   -G Ninja \
@@ -29,7 +29,7 @@ nix shell nixpkgs#cmake nixpkgs#ninja -c cmake \
   -DNO_LIBSNDFILE=ON \
   -DCMAKE_DISABLE_FIND_PACKAGE_Readline=TRUE \
   "-DCMAKE_EXE_LINKER_FLAGS=-framework Foundation"
-nix shell nixpkgs#cmake nixpkgs#ninja -c cmake --build "$BUILD" --target sclang -j 8
+cmake --build "$BUILD" --target sclang -j 8
 install -m 0755 "$BUILD/lang/sclang" "$RUNTIME_DIR/sclang"
 
 echo "Installed arm64 headless sclang at $RUNTIME_DIR/sclang"
