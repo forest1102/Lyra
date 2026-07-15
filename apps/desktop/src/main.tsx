@@ -4,11 +4,19 @@ import { AppGate } from "./App";
 import { LyraProvider } from "./state/LyraContext";
 import "./styles.css";
 
-const root = document.getElementById("root");
-if (!root) throw new Error("root element was not found");
+async function start() {
+  if (import.meta.env.VITE_E2E === "1") {
+    await import("@wdio/tauri-plugin");
+  }
 
-createRoot(root).render(
-  <StrictMode>
-    <LyraProvider><AppGate /></LyraProvider>
-  </StrictMode>
-);
+  const root = document.getElementById("root");
+  if (!root) throw new Error("root element was not found");
+
+  createRoot(root).render(
+    <StrictMode>
+      <LyraProvider><AppGate /></LyraProvider>
+    </StrictMode>
+  );
+}
+
+void start();

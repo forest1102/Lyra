@@ -25,6 +25,13 @@ impl MusicLifecycleRuntime for crate::music::runtime::SuperColliderRuntime {
     }
 }
 
+fn resolve_data_directory(
+    default: std::path::PathBuf,
+    e2e_override: Option<std::path::PathBuf>,
+) -> std::path::PathBuf {
+    e2e_override.unwrap_or(default)
+}
+
 fn handle_music_lifecycle<R: MusicLifecycleRuntime>(
     runtime: &Mutex<Option<R>>,
     lifecycle: MusicLifecycle,
@@ -43,10 +50,19 @@ fn handle_music_lifecycle<R: MusicLifecycleRuntime>(
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    #[cfg(feature = "e2e")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+    let app = builder
         .setup(|app| {
-            let data_directory = app.path().app_data_dir()?;
+            let default_data_directory = app.path().app_data_dir()?;
+            #[cfg(feature = "e2e")]
+            let e2e_data_directory = std::env::var_os("LYRA_E2E_DATA_DIR").map(Into::into);
+            #[cfg(not(feature = "e2e"))]
+            let e2e_data_directory = None;
+            let data_directory = resolve_data_directory(default_data_directory, e2e_data_directory);
             std::fs::create_dir_all(&data_directory)?;
             let resource_directory = app.path().resource_dir()?.join("resources/supercollider");
             let database = Database::open(data_directory.join("lyra.db"))?;
@@ -414,5 +430,29 @@ mod ipc_contract_tests {
     fn serializes_music_generation_channel_progress() {
         let progress = serde_json::to_value(MusicGenerationProgress::new("validating")).unwrap();
         assert_eq!(progress["phase"], "validating");
+    }
+}
+
+#[cfg(test)]
+mod data_directory_tests {
+    use super::resolve_data_directory;
+    use std::path::PathBuf;
+
+    #[test]
+    fn e2e_override_replaces_the_normal_application_data_directory() {
+        let normal = PathBuf::from("/normal/app-data");
+        let isolated = PathBuf::from("/tmp/lyra-e2e");
+
+        assert_eq!(
+            resolve_data_directory(normal, Some(isolated.clone())),
+            isolated
+        );
+    }
+
+    #[test]
+    fn normal_application_data_directory_is_used_without_an_override() {
+        let normal = PathBuf::from("/normal/app-data");
+
+        assert_eq!(resolve_data_directory(normal.clone(), None), normal);
     }
 }
