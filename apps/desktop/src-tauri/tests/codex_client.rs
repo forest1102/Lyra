@@ -326,7 +326,7 @@ fn repair_prompt_uses_thread_history_and_only_sends_diagnostics_and_fix_conditio
         motion: "low".into(),
     });
     let repair = prompt.repair("forbidden selector: .play");
-    assert!(repair.contains("forbidden selector: .play"));
+    assert_eq!(repair_diagnostics(&repair), "forbidden selector: .play");
     assert!(repair.contains("修正版JSONだけ"));
     assert!(repair.contains("同じスレッド"));
     assert!(!repair.contains("rainy-cabin"));
@@ -339,4 +339,58 @@ fn repair_prompt_uses_thread_history_and_only_sends_diagnostics_and_fix_conditio
         "repair prompt is {} bytes",
         repair.len()
     );
+}
+
+#[test]
+fn repair_prompt_truncates_large_ascii_diagnostics() {
+    let prompt = GenerationPrompt::new(GenerationControls {
+        theme: "deep-space".into(),
+        arrangement: "ambient".into(),
+        brightness: "medium".into(),
+        density: "low".into(),
+        motion: "low".into(),
+    });
+    let diagnostics = format!("{}TAIL_MARKER", "x".repeat(48 * 1024));
+
+    let repair = prompt.repair(&diagnostics);
+    let diagnostics = repair_diagnostics(&repair);
+
+    assert!(
+        repair.len() <= 640,
+        "repair prompt is {} bytes",
+        repair.len()
+    );
+    assert_eq!(diagnostics.len(), 384);
+    assert_eq!(diagnostics, format!("{}…", "x".repeat(381)));
+    assert!(!repair.contains("TAIL_MARKER"));
+}
+
+#[test]
+fn repair_prompt_truncates_at_a_utf8_boundary() {
+    let prompt = GenerationPrompt::new(GenerationControls {
+        theme: "deep-space".into(),
+        arrangement: "ambient".into(),
+        brightness: "medium".into(),
+        density: "low".into(),
+        motion: "low".into(),
+    });
+    let diagnostics = "🪐".repeat(200);
+
+    let repair = prompt.repair(&diagnostics);
+    let diagnostics = repair_diagnostics(&repair);
+
+    assert_eq!(diagnostics, format!("{}…", "🪐".repeat(95)));
+    assert!(diagnostics.len() <= 384);
+    assert!(
+        repair.len() <= 640,
+        "repair prompt is {} bytes",
+        repair.len()
+    );
+}
+
+fn repair_diagnostics(repair: &str) -> &str {
+    repair
+        .split_once("検証診断: ")
+        .and_then(|(_, rest)| rest.split_once('\n').map(|(diagnostics, _)| diagnostics))
+        .expect("repair prompt must contain diagnostics")
 }

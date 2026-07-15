@@ -105,6 +105,15 @@ impl<B: GenerationBackend> GenerationService<B> {
         controls: GenerationControls,
         focus_active: bool,
     ) -> Result<GeneratedMusicDraft, GenerationError> {
+        self.generate_with_reporter(controls, focus_active, |record| eprintln!("{record}"))
+    }
+
+    fn generate_with_reporter(
+        &mut self,
+        controls: GenerationControls,
+        focus_active: bool,
+        reporter: impl FnOnce(&str),
+    ) -> Result<GeneratedMusicDraft, GenerationError> {
         let total_started = Instant::now();
         let mut metrics = GenerationMetrics::default();
         let result = (|| {
@@ -160,7 +169,7 @@ impl<B: GenerationBackend> GenerationService<B> {
             })
         })();
         metrics.total_ms = total_started.elapsed().as_millis();
-        eprintln!("{}", format_generation_metrics(&metrics, result.is_ok()));
+        reporter(&format_generation_metrics(&metrics, result.is_ok()));
         result
     }
 
@@ -176,7 +185,72 @@ impl<B: GenerationBackend> GenerationService<B> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_generation_metrics, GenerationMetrics};
+    use super::{
+        format_generation_metrics, GeneratedMusicDraft, GenerationBackend, GenerationError,
+        GenerationMetrics, GenerationService,
+    };
+    use crate::music::codex_client::{GenerationControls, GenerationPrompt, GenerationTurn};
+
+    const VALID_SOURCE: &str = r#"Math.srandom(__LYRA_SEED__);
+SinOsc oscillator => ADSR envelope => LPF filter => Pan2 pan => Gain master => dac;
+0.12 => master.gain;
+while (true) { envelope.keyOn(); 500::ms => now; }"#;
+
+    struct FakeBackend {
+        initial: Option<Result<String, String>>,
+        repair: Option<Result<String, String>>,
+    }
+
+    impl GenerationBackend for FakeBackend {
+        fn generate(&mut self, _prompt: &GenerationPrompt) -> Result<GenerationTurn, String> {
+            self.initial.take().unwrap().map(|output| GenerationTurn {
+                thread_id: "thread-1".into(),
+                output,
+            })
+        }
+
+        fn repair(
+            &mut self,
+            _thread_id: &str,
+            _prompt: &GenerationPrompt,
+            _diagnostics: &str,
+        ) -> Result<String, String> {
+            self.repair.take().unwrap()
+        }
+    }
+
+    fn json(source: &str) -> String {
+        serde_json::json!({
+            "schemaVersion": 1,
+            "title": "Nebula Drift",
+            "description": "A quiet generated focus track.",
+            "bpm": 64,
+            "tailSeconds": 4,
+            "chuckSource": source
+        })
+        .to_string()
+    }
+
+    fn controls() -> GenerationControls {
+        GenerationControls {
+            theme: "deep-space".into(),
+            arrangement: "ambient".into(),
+            brightness: "medium".into(),
+            density: "low".into(),
+            motion: "low".into(),
+        }
+    }
+
+    fn generate_with_records(
+        backend: FakeBackend,
+    ) -> (Result<GeneratedMusicDraft, GenerationError>, Vec<String>) {
+        let mut service = GenerationService::new(backend);
+        let mut records = Vec::new();
+        let result = service.generate_with_reporter(controls(), false, |record| {
+            records.push(record.to_owned());
+        });
+        (result, records)
+    }
 
     #[test]
     fn formats_success_metrics_with_stable_field_order() {
@@ -208,5 +282,59 @@ mod tests {
             format_generation_metrics(&metrics, false),
             "music_generation model=gpt-5.6-terra initial_ms=1 validation_ms=2 repair_ms=0 repaired=false total_ms=3 result=failure"
         );
+    }
+
+    #[test]
+    fn reports_success_exactly_once() {
+        let (result, records) = generate_with_records(FakeBackend {
+            initial: Some(Ok(json(VALID_SOURCE))),
+            repair: None,
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(records.len(), 1);
+        assert!(records[0].contains("repaired=false"));
+        assert!(records[0].contains("result=success"));
+    }
+
+    #[test]
+    fn reports_initial_backend_failure_exactly_once() {
+        let (result, records) = generate_with_records(FakeBackend {
+            initial: Some(Err("initial unavailable".into())),
+            repair: None,
+        });
+
+        assert!(matches!(result, Err(GenerationError::Backend(_))));
+        assert_eq!(records.len(), 1);
+        assert!(records[0].contains("repaired=false"));
+        assert!(records[0].contains("result=failure"));
+    }
+
+    #[test]
+    fn reports_repair_backend_failure_exactly_once() {
+        let invalid = json(&VALID_SOURCE.replace("SinOsc", "UnsafeOsc"));
+        let (result, records) = generate_with_records(FakeBackend {
+            initial: Some(Ok(invalid)),
+            repair: Some(Err("repair unavailable".into())),
+        });
+
+        assert!(matches!(result, Err(GenerationError::Backend(_))));
+        assert_eq!(records.len(), 1);
+        assert!(records[0].contains("repaired=true"));
+        assert!(records[0].contains("result=failure"));
+    }
+
+    #[test]
+    fn reports_final_validation_failure_exactly_once() {
+        let invalid = json(&VALID_SOURCE.replace("SinOsc", "UnsafeOsc"));
+        let (result, records) = generate_with_records(FakeBackend {
+            initial: Some(Ok(invalid.clone())),
+            repair: Some(Ok(invalid)),
+        });
+
+        assert!(matches!(result, Err(GenerationError::Validation(_))));
+        assert_eq!(records.len(), 1);
+        assert!(records[0].contains("repaired=true"));
+        assert!(records[0].contains("result=failure"));
     }
 }

@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt;
+
+const MAX_REPAIR_DIAGNOSTICS_BYTES: usize = 384;
+const ELLIPSIS: &str = "…";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationControls {
@@ -21,11 +25,24 @@ impl GenerationPrompt {
     }
 
     pub fn repair(&self, diagnostics: &str) -> String {
+        let diagnostics = truncate_repair_diagnostics(diagnostics);
         format!(
             "同じスレッドの前回出力を修正してください。\n検証診断: {}\n選択値と音楽的意図を維持し、JSON SchemaとSourcePolicy v1の静的検証契約を満たす修正版JSONだけを返してください。",
             diagnostics
         )
     }
+}
+
+fn truncate_repair_diagnostics(diagnostics: &str) -> Cow<'_, str> {
+    if diagnostics.len() <= MAX_REPAIR_DIAGNOSTICS_BYTES {
+        return Cow::Borrowed(diagnostics);
+    }
+
+    let mut end = MAX_REPAIR_DIAGNOSTICS_BYTES - ELLIPSIS.len();
+    while !diagnostics.is_char_boundary(end) {
+        end -= 1;
+    }
+    Cow::Owned(format!("{}{}", &diagnostics[..end], ELLIPSIS))
 }
 
 fn arrangement_recipe(arrangement: &str) -> &'static str {
