@@ -10,6 +10,8 @@ var scsynthPath = "LYRA_SCSYNTH_PATH".getenv;
 ~lyraActiveDeck = nil;
 ~lyraLastSwitchRequest = -1;
 ~lyraVolume = 0.8;
+~lyraLastHeartbeat = Main.elapsedTime;
+~lyraShuttingDown = false;
 
 thisProcess.openUDPPort(languagePort);
 Server.program = scsynthPath;
@@ -34,6 +36,21 @@ s.options.ugenPluginsPath = pluginPath;
 
 ~lyraAuthorized = { |message|
   message.size > 2 and: { message[1].asString == token };
+};
+
+~lyraShutdown = {
+  if(~lyraShuttingDown.not) {
+    ~lyraShuttingDown = true;
+    ~lyraMixer.tryPerform(\set, \gainA, 0, \gainB, 0, \lag, 0);
+    ~lyraDecks.do({ |deck|
+      deck.notNil.if({
+        deck[\player].tryPerform(\stop);
+        deck[\group].tryPerform(\freeAll);
+      });
+    });
+    s.quit;
+    SystemClock.sched(0.5, { 0.exit; nil });
+  };
 };
 
 ~lyraStartDeck = { |deckIndex, trackId, seed|
@@ -111,7 +128,10 @@ s.waitForBoot({
 });
 
 OSCdef(\lyraPing, { |message|
-  if(~lyraAuthorized.(message)) { ~lyraAck.(message[2].asInteger, "ping") };
+  if(~lyraAuthorized.(message)) {
+    ~lyraLastHeartbeat = Main.elapsedTime;
+    ~lyraAck.(message[2].asInteger, "ping");
+  };
 }, "/lyra/v1/ping", recvPort: languagePort);
 
 OSCdef(\lyraLoad, { |message|
@@ -170,12 +190,9 @@ OSCdef(\lyraResume, { |message|
 OSCdef(\lyraStop, { |message|
   var requestId = message[2].asInteger;
   if(~lyraAuthorized.(message)) {
-    ~lyraMixer.set(\gainA, 0, \gainB, 0, \lag, 2);
-    SystemClock.sched(2, {
-      ~lyraDecks.do({ |deck| deck[\player].tryPerform(\stop); deck[\group].freeAll });
-      ~lyraActiveDeck = nil;
-      nil;
-    });
+    ~lyraMixer.set(\gainA, 0, \gainB, 0, \lag, 0);
+    ~lyraDecks.do({ |deck| deck[\player].tryPerform(\stop); deck[\group].freeAll });
+    ~lyraActiveDeck = nil;
     ~lyraAck.(requestId, "stop");
   };
 }, "/lyra/v1/stop", recvPort: languagePort);
@@ -190,10 +207,18 @@ OSCdef(\lyraVolumeCommand, { |message|
 OSCdef(\lyraShutdown, { |message|
   if(~lyraAuthorized.(message)) {
     ~lyraAck.(message[2].asInteger, "shutdown");
-    s.quit;
-    0.exit;
+    ~lyraShutdown.();
   };
 }, "/lyra/v1/shutdown", recvPort: languagePort);
+
+SystemClock.sched(1, {
+  if((Main.elapsedTime - ~lyraLastHeartbeat) > 12) {
+    ~lyraShutdown.();
+    nil;
+  } {
+    1;
+  };
+});
 
 SystemClock.sched(1, {
   if(s.serverRunning) {

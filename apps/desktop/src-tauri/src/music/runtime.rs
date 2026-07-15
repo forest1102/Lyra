@@ -110,6 +110,7 @@ pub enum RuntimeError {
 pub struct SuperColliderRuntime {
     config: MusicRuntimeConfig,
     process: Child,
+    process_group_id: u32,
     socket: UdpSocket,
     language_address: SocketAddr,
     token: String,
@@ -129,7 +130,8 @@ impl SuperColliderRuntime {
         let language_port = reserve_loopback_port()?;
         let token = Uuid::new_v4().simple().to_string();
 
-        let mut process = Command::new(&config.sclang_path)
+        let mut command = Command::new(&config.sclang_path);
+        command
             .arg("-D")
             .arg("-l")
             .arg(&config.language_config)
@@ -143,8 +145,9 @@ impl SuperColliderRuntime {
             .env("XDG_DATA_HOME", &config.xdg_data_home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let mut process = spawn_process_group(&mut command)?;
+        let process_group_id = process.id();
 
         let stdout = process
             .stdout
@@ -179,11 +182,11 @@ impl SuperColliderRuntime {
         match ready_receiver.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(())) => {}
             Ok(Err(diagnostics)) => {
-                let _ = process.kill();
+                terminate_process_group(&mut process, process_group_id);
                 return Err(RuntimeError::Startup(diagnostics));
             }
             Err(_) => {
-                let _ = process.kill();
+                terminate_process_group(&mut process, process_group_id);
                 return Err(RuntimeError::Startup("10 second startup timeout".into()));
             }
         }
@@ -191,6 +194,7 @@ impl SuperColliderRuntime {
         Ok(Self {
             config,
             process,
+            process_group_id,
             socket,
             language_address: SocketAddr::from(([127, 0, 0, 1], language_port)),
             token,
@@ -274,6 +278,7 @@ impl SuperColliderRuntime {
     }
 
     pub fn stop(&mut self) -> Result<i64, RuntimeError> {
+        self.coordinator.clear_playback();
         self.send_and_ack("/lyra/v1/stop", Vec::new())
     }
 
@@ -476,10 +481,65 @@ impl SuperColliderRuntime {
 
 impl Drop for SuperColliderRuntime {
     fn drop(&mut self) {
-        let _ = self.send("/lyra/v1/shutdown", Vec::new());
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        let _ = self.send_and_ack("/lyra/v1/shutdown", Vec::new());
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            match self.process.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Err(_) => break,
+            }
+        }
+        terminate_process_group(&mut self.process, self.process_group_id);
     }
+}
+
+#[cfg(unix)]
+fn spawn_process_group(command: &mut Command) -> Result<Child, std::io::Error> {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0).spawn()
+}
+
+#[cfg(not(unix))]
+fn spawn_process_group(command: &mut Command) -> Result<Child, std::io::Error> {
+    command.spawn()
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_group_id: u32) -> bool {
+    let Ok(process_group_id) = i32::try_from(process_group_id) else {
+        return false;
+    };
+    let result = unsafe { libc::kill(-process_group_id, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(unix)]
+fn terminate_process_group(process: &mut Child, process_group_id: u32) {
+    if let Ok(process_group_id) = i32::try_from(process_group_id) {
+        unsafe {
+            libc::kill(-process_group_id, libc::SIGTERM);
+        }
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        while process_group_exists(process_group_id as u32) && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if process_group_exists(process_group_id as u32) {
+            unsafe {
+                libc::kill(-process_group_id, libc::SIGKILL);
+            }
+        }
+    }
+    let _ = process.kill();
+    let _ = process.wait();
+}
+
+#[cfg(not(unix))]
+fn terminate_process_group(process: &mut Child, _process_group_id: u32) {
+    let _ = process.kill();
+    let _ = process.wait();
 }
 
 fn reserve_loopback_port() -> Result<u16, std::io::Error> {
@@ -634,6 +694,11 @@ impl PlaybackCoordinator {
         self.active.as_ref()
     }
 
+    pub fn clear_playback(&mut self) {
+        self.active = None;
+        self.pending = None;
+    }
+
     pub fn music_disabled(&self) -> bool {
         self.music_disabled
     }
@@ -673,3 +738,27 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
+
+#[cfg(all(test, unix))]
+mod process_group_tests {
+    use super::{process_group_exists, spawn_process_group, terminate_process_group};
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn terminating_the_runtime_process_group_reaps_descendants() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 30 & wait"]);
+        let mut process = spawn_process_group(&mut command).unwrap();
+        let process_group_id = process.id();
+
+        assert!(process_group_exists(process_group_id));
+        terminate_process_group(&mut process, process_group_id);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_group_exists(process_group_id) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!process_group_exists(process_group_id));
+    }
+}

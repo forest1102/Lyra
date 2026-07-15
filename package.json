@@ -4,14 +4,12 @@
   "version": "0.1.0",
   "packageManager": "bun@1.3.10",
   "workspaces": [
-    "apps/*",
-    "packages/*",
+    "apps/desktop",
     "tooling",
     "tooling/*"
   ],
   "scripts": {
     "setup": "bun install --frozen-lockfile",
-    "web:dev": "bunx turbo run dev --filter=@lyra/client",
     "app:dev": "bunx turbo run dev --filter=@lyra/desktop",
     "app:build": "bunx turbo run build:desktop --filter=@lyra/desktop",
     "sc:build": "bunx turbo run build:supercollider --filter=@lyra/native-tooling",
@@ -22,7 +20,6 @@
     "verify": "bunx turbo run test typecheck build check fmt:check"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0",
     "turbo": "latest",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

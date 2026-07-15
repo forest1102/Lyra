@@ -1977,6 +1977,7 @@ dependencies = [
 name = "lyra-desktop"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "lyra-core",
  "regex",
  "serde",

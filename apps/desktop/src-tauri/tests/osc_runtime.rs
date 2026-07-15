@@ -63,3 +63,18 @@ fn a_stale_switch_request_is_ignored() {
         SwitchDecision::IgnoredStale
     );
 }
+
+#[test]
+fn stopping_clears_the_track_used_for_runtime_recovery() {
+    let mut coordinator = PlaybackCoordinator::new();
+    coordinator.request_switch(1, "track-1".into(), 42);
+    coordinator.confirm_switch(1);
+
+    coordinator.clear_playback();
+
+    assert!(coordinator.active().is_none());
+    assert_eq!(
+        coordinator.register_runtime_failure(1_000),
+        RecoveryAction::RestartIdleRuntime
+    );
+}
