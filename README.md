@@ -91,25 +91,6 @@ bun run app:build
 
 Vite is started internally by Tauri and is not a standalone product or deployment target. The app stores SQLite and generated `.scd` files under the macOS application data directory for `app.lyra.focus`. Closing the main window hides it; the Rust timer and music runtime continue. Quitting marks running focus sessions as interrupted.
 
-## Desktop E2E
-
-The desktop E2E suite runs the same debug Tauri binary in macOS's real WKWebView with WebdriverIO's embedded WebDriver. It covers screen navigation, mocked task and preset IPC, SQLite task persistence across reload, and the no-audio focus pause/resume/end flow. Codex generation, SuperCollider playback, notifications, and tray interactions remain release QA.
-
-Run all E2E specs (the command builds the E2E-only debug binary first):
-
-```sh
-bun run test:e2e
-```
-
-Run one desktop spec:
-
-```sh
-bun run --cwd apps/desktop test:e2e -- --spec e2e/specs/mock-ipc.e2e.ts
-bun run --cwd apps/desktop test:e2e -- --spec e2e/specs/backend.e2e.ts
-```
-
-Each run creates a temporary `LYRA_E2E_DATA_DIR` and removes it after WDIO exits; the normal Application Support database is never used. On failure, WDIO logs and screenshots are written under `apps/desktop/e2e/artifacts/` (and uploaded by CI only for failed jobs).
-
 ## Music generation quality contract
 
 The generation prompt treats a theme as timbre and space, while the arrangement controls musical structure. Ambient is the default; saved tracks and variations retain the selected arrangement.

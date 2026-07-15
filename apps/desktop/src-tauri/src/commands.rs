@@ -561,10 +561,6 @@ pub fn finish_focus(
         .map_err(error)
 }
 
-fn playback_without_runtime(action: &str) -> Option<MusicPlaybackState> {
-    matches!(action, "pause" | "resume" | "stop" | "silence").then(MusicPlaybackState::stopped)
-}
-
 pub(crate) fn music_playback_event(
     action: String,
     track_id: Option<String>,
@@ -578,11 +574,12 @@ pub(crate) fn music_playback_event(
             "BGM is disabled for this focus session after repeated runtime failures".into(),
         );
     }
-    if state.runtime.lock().map_err(error)?.is_none() {
-        if let Some(next) = playback_without_runtime(&action) {
-            *state.music_playback.lock().map_err(error)? = next.clone();
-            return Ok(next);
-        }
+    if matches!(action.as_str(), "stop" | "silence")
+        && state.runtime.lock().map_err(error)?.is_none()
+    {
+        let next = MusicPlaybackState::stopped();
+        *state.music_playback.lock().map_err(error)? = next.clone();
+        return Ok(next);
     }
     let mut runtime = state.runtime.lock().map_err(error)?;
     if runtime.is_none() {
@@ -650,7 +647,7 @@ fn validate_music_arrangement(value: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{playback_without_runtime, validate_music_arrangement};
+    use super::validate_music_arrangement;
 
     #[test]
     fn accepts_only_supported_music_arrangements() {
@@ -658,15 +655,5 @@ mod tests {
             assert!(validate_music_arrangement(arrangement).is_ok());
         }
         assert!(validate_music_arrangement("cinematic-horror").is_err());
-    }
-
-    #[test]
-    fn pause_and_resume_without_music_leave_the_runtime_stopped() {
-        for action in ["pause", "resume"] {
-            let state = playback_without_runtime(action).expect("idle playback state");
-            assert_eq!(state.status, "stopped");
-            assert!(state.track_id.is_none());
-        }
-        assert!(playback_without_runtime("play").is_none());
     }
 }

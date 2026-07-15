@@ -19,16 +19,6 @@ export function selectionPlaybackAction(trackId: string | null): "switch" | "sil
 }
 
 function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (import.meta.env.VITE_E2E === "1") {
-    const e2eWindow = window as unknown as {
-      __wdio_mocks__?: Record<string, (input?: Record<string, unknown>) => Promise<T>>;
-      __TAURI__?: { core?: { invoke: <Value>(name: string, input?: Record<string, unknown>) => Promise<Value> } };
-    };
-    const mock = e2eWindow.__wdio_mocks__?.[command];
-    if (mock) return mock(args);
-    const globalTauri = e2eWindow.__TAURI__;
-    if (globalTauri?.core?.invoke) return globalTauri.core.invoke<T>(command, args);
-  }
   return tauriInvoke<T>(command, args);
 }
 

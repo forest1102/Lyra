@@ -8,9 +8,6 @@
     "tooling",
     "tooling/*"
   ],
-  "overrides": {
-    "@wdio/native-utils": "file:tooling/wdio-native-utils-shim"
-  },
   "scripts": {
     "setup": "bun install --frozen-lockfile",
     "app:dev": "bunx turbo run dev --filter=@lyra/desktop",
@@ -20,9 +17,7 @@
     "mcp:build": "bunx turbo run build:mcp --filter=@lyra/native-tooling",
     "runtime:check": "bunx turbo run check:runtime --filter=@lyra/native-tooling",
     "generation:check": "bunx turbo run check:generation --filter=@lyra/native-tooling",
-    "test:e2e": "bun run --cwd apps/desktop test:e2e",
-    "verify:core": "bunx turbo run test typecheck build check fmt:check",
-    "verify": "bun run verify:core && bun run test:e2e"
+    "verify": "bunx turbo run test typecheck build check fmt:check"
   },
   "devDependencies": {
     "turbo": "latest",
