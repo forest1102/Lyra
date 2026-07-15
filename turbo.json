@@ -43,7 +43,6 @@
       "cache": false
     },
     "build:desktop": {
-      "dependsOn": ["@lyra/client#build"],
       "cache": false
     },
     "build:supercollider": {

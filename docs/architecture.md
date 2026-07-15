@@ -1,23 +1,26 @@
-# Lyra MVP architecture
+# Lyra desktop architecture
 
 ## Runtime ownership
 
 ```text
-Expo UI
-  ├─ TaskRepository ───────────────┐
-  ├─ TimerService ───────────────┐ │
-  ├─ MusicGenerationService ───┐ │ │
-  └─ MusicPlaybackService ───┐ │ │ │
-                             ▼ ▼ ▼ ▼
-                         Tauri commands
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-          lyra-core      Codex App      SC runtime
-          SQLite         Server JSONL   OSC v1
+React + Vite UI
+  ├─ one-shot requests ─────────── Tauri commands ─┐
+  ├─ timer state updates ───────── timer://state   │
+  └─ music failure updates ─────── music://error   │
+                                                   ▼
+                                             Tauri Core (Rust)
+                                                   │
+                              ┌────────────────────┼───────────────┐
+                              ▼                    ▼               ▼
+                         lyra-core            Codex App       SC runtime
+                         SQLite + timer        Server JSONL    OSC v1
 ```
 
-Expo code depends only on the service boundary in `packages/domain`. A later iOS client can keep the UI and replace Tauri commands with an authenticated HTTP implementation.
+`apps/desktop` is the only user-facing application. Rust owns the deadline timer, SQLite connection, Codex process, and SuperCollider process. The UI requests the initial state through Tauri commands and then treats Rust events as authoritative; it has no browser fallback or generated fixture state.
+
+Closing the main window hides it without stopping the Rust runtime. Clicking the menu bar item restores the same window. The application identifier remains `app.lyra.focus`, so existing SQLite and generated track data continue to use the same Application Support directory.
+
+The separate `lyra-mcp` executable remains an optional local integration. It writes to the same WAL-mode SQLite database, and the desktop UI polls tasks every 1.5 seconds to reflect MCP additions.
 
 ## SuperCollider data flow
 

@@ -4,13 +4,11 @@
   "version": "0.1.0",
   "packageManager": "bun@1.3.10",
   "workspaces": [
-    "apps/*",
-    "packages/*",
+    "apps/desktop",
     "tooling",
     "tooling/*"
   ],
   "devDependencies": {
-    "@types/react": "^19.2.0",
     "turbo": "latest",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

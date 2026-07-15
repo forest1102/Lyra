@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "app.lyra.focus",
   "build": {
-    "beforeDevCommand": "bunx turbo run dev --filter=@lyra/client",
-    "devUrl": "http://localhost:8081",
-    "beforeBuildCommand": "bunx turbo run build --filter=@lyra/client",
-    "frontendDist": "../../client/dist"
+    "beforeDevCommand": "bun run dev:ui",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [
@@ -30,6 +30,10 @@
   "bundle": {
     "active": true,
     "targets": "app",
+    "icon": ["icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "15.0"
+    },
     "resources": ["resources/supercollider/**/*"]
   }
 }

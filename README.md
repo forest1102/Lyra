@@ -1,6 +1,6 @@
 # Lyra
 
-Lyra is a local-first focus companion for macOS. It combines multi-task Pomodoro sessions with constrained, Codex-generated SuperCollider soundscapes.
+Lyra is a local-first desktop focus companion for macOS 15 and later. It combines multi-task Pomodoro sessions with constrained, Codex-generated SuperCollider soundscapes.
 
 ## MVP features
 
@@ -17,10 +17,8 @@ The BGM Studio and Focus flows are intentionally separate. Generation never happ
 ## Repository layout
 
 ```text
-apps/client                 Expo Router + React Native Web UI
-apps/desktop                Tauri package and desktop scripts
-apps/desktop/src-tauri      Rust commands and SuperCollider runtime
-packages/domain             Shared TypeScript types and state machines
+apps/desktop/src            React + Vite desktop UI
+apps/desktop/src-tauri      Tauri commands and SuperCollider runtime
 crates/lyra-core            SQLite repositories and Rust timer
 crates/lyra-mcp             STDIO MCP server for add_task
 scripts/check-supercollider.sh
@@ -42,13 +40,7 @@ bun install
 
 ## Development
 
-Run the Expo web UI:
-
-```sh
-bunx turbo run dev --filter=@lyra/client
-```
-
-Run the Tauri desktop app when Rust is installed globally:
+Run the desktop app when Rust is installed globally:
 
 ```sh
 bunx turbo run dev --filter=@lyra/desktop
@@ -60,7 +52,7 @@ With Nix-provided Rust:
 nix shell nixpkgs#cargo nixpkgs#rustc -c bunx turbo run dev --filter=@lyra/desktop
 ```
 
-The app stores SQLite and generated `.scd` files under the macOS application data directory for `app.lyra.focus`. Closing the main window hides it; the Rust timer and music runtime continue. Quitting marks running focus sessions as interrupted.
+Vite is started internally by Tauri and is not a standalone product or deployment target. The app stores SQLite and generated `.scd` files under the macOS application data directory for `app.lyra.focus`. Closing the main window hides it; the Rust timer and music runtime continue. Quitting marks running focus sessions as interrupted.
 
 ## SuperCollider compatibility gate
 
@@ -154,4 +146,4 @@ On macOS 26.5.2, run `bunx turbo run build:supercollider --filter=@lyra/native-t
 
 ## Security boundary
 
-The MVP never accepts free-form SuperCollider prompts, samples, microphone input, Quarks, user Extensions, or additional UGen plugins. The allowlist reduces risk but is not treated as a complete security boundary. A public/iOS server version should move to a declarative music representation or stronger process isolation.
+The MVP never accepts free-form SuperCollider prompts, samples, microphone input, Quarks, user Extensions, or additional UGen plugins. The allowlist reduces risk but is not treated as a complete security boundary.

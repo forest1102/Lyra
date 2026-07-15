@@ -7,11 +7,11 @@ use lyra_core::{
     AddTask, Database, FocusSession, MusicTrackRecord, Task, TaskList, TimerAction, TimerEngine,
     TimerPhase, TimerPreset, TimerState, TimerStatus,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
 
 pub struct NativePaths {
     pub data_directory: PathBuf,
@@ -62,8 +62,44 @@ pub struct AppState {
     pub generation: Mutex<Option<GenerationService<CodexClient>>>,
     pub drafts: Mutex<HashMap<String, GeneratedMusicDraft>>,
     pub runtime: Mutex<Option<SuperColliderRuntime>>,
+    pub music_playback: Mutex<MusicPlaybackState>,
+    pub music_control: crate::ipc::MusicControlGate,
     pub music_disabled_session: Mutex<bool>,
     pub paths: NativePaths,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MusicPlaybackState {
+    pub status: String,
+    pub track_id: Option<String>,
+}
+
+impl MusicPlaybackState {
+    pub(crate) fn stopped() -> Self {
+        Self {
+            status: "stopped".into(),
+            track_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MusicGenerationProgress {
+    phase: String,
+}
+
+impl MusicGenerationProgress {
+    pub(crate) fn new(phase: impl Into<String>) -> Self {
+        Self {
+            phase: phase.into(),
+        }
+    }
+}
+
+fn send_generation_progress(channel: &Channel<MusicGenerationProgress>, phase: &str) {
+    let _ = channel.send(MusicGenerationProgress::new(phase));
 }
 
 fn error(value: impl std::fmt::Display) -> String {
@@ -78,6 +114,40 @@ pub fn list_tasks(state: State<'_, AppState>) -> Result<Vec<Task>, String> {
         .map_err(error)?
         .list_tasks(None)
         .map_err(error)
+}
+
+fn read_timer_state(timer: &Mutex<TimerEngine>) -> Result<TimerState, String> {
+    Ok(timer.lock().map_err(error)?.state())
+}
+
+#[tauri::command]
+pub fn get_timer_state(state: State<'_, AppState>) -> Result<TimerState, String> {
+    read_timer_state(&state.timer)
+}
+
+#[cfg(test)]
+mod timer_state_tests {
+    use super::read_timer_state;
+    use lyra_core::{TimerEngine, TimerPreset, TimerStatus};
+    use std::sync::Mutex;
+
+    #[test]
+    fn reads_the_current_rust_timer_state() {
+        let timer = Mutex::new(TimerEngine::new(TimerPreset {
+            id: "standard".into(),
+            name: "Standard".into(),
+            focus_minutes: 25,
+            short_break_minutes: 5,
+            long_break_minutes: 15,
+            cycles_before_long_break: 4,
+            built_in: true,
+        }));
+
+        let state = read_timer_state(&timer).expect("timer state");
+
+        assert_eq!(state.status, TimerStatus::Idle);
+        assert_eq!(state.remaining_seconds, 1_500);
+    }
 }
 
 #[tauri::command]
@@ -159,9 +229,12 @@ pub struct GenerateMusicRequest {
 #[tauri::command]
 pub async fn generate_music(
     request: GenerateMusicRequest,
+    on_progress: Channel<MusicGenerationProgress>,
     app: AppHandle,
 ) -> Result<GeneratedMusicDraft, String> {
+    send_generation_progress(&on_progress, "started");
     tauri::async_runtime::spawn_blocking(move || {
+        send_generation_progress(&on_progress, "coding");
         let state = app.state::<AppState>();
         generate_music_blocking(request, &state)
     })
@@ -255,19 +328,31 @@ pub fn save_music_draft(
 #[tauri::command]
 pub async fn preview_music_draft(
     draft_id: String,
+    on_progress: Channel<MusicGenerationProgress>,
     app: AppHandle,
 ) -> Result<GeneratedMusicDraft, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        preview_music_draft_blocking(draft_id, &state)
+    send_generation_progress(&on_progress, "started");
+    let worker_app = app.clone();
+    let draft = tauri::async_runtime::spawn_blocking(move || {
+        let state = worker_app.state::<AppState>();
+        preview_music_draft_blocking(draft_id, &state, &on_progress)
     })
     .await
-    .map_err(error)?
+    .map_err(error)??;
+    let playback = app
+        .state::<AppState>()
+        .music_playback
+        .lock()
+        .map_err(error)?
+        .clone();
+    let _ = app.emit("music://state", playback);
+    Ok(draft)
 }
 
 fn preview_music_draft_blocking(
     draft_id: String,
     state: &AppState,
+    on_progress: &Channel<MusicGenerationProgress>,
 ) -> Result<GeneratedMusicDraft, String> {
     let timer = state.timer.lock().map_err(error)?.state();
     if timer.status == TimerStatus::Running && timer.phase == TimerPhase::Focus {
@@ -288,6 +373,7 @@ fn preview_music_draft_blocking(
     std::fs::write(&source_path, draft.supercollider_source.as_bytes()).map_err(error)?;
 
     let runtime_config = state.paths.runtime_config();
+    send_generation_progress(on_progress, "validating");
     StaticValidator::new()
         .validate_with_sclang(
             &runtime_config.sclang_path,
@@ -317,6 +403,7 @@ fn preview_music_draft_blocking(
         .map_err(error)?
         .insert(draft.id.clone(), draft.clone());
 
+    send_generation_progress(on_progress, "previewing");
     runtime.set_volume(0.8).map_err(error)?;
     runtime
         .load_track(
@@ -328,6 +415,10 @@ fn preview_music_draft_blocking(
     runtime
         .play(&draft.id, draft.canonical_seed)
         .map_err(error)?;
+    *state.music_playback.lock().map_err(error)? = MusicPlaybackState {
+        status: "playing".into(),
+        track_id: Some(draft.id.clone()),
+    };
     Ok(draft)
 }
 
@@ -369,6 +460,7 @@ pub fn rate_music_track(
     rename_all_fields = "camelCase"
 )]
 pub enum TimerEventInput {
+    SelectPreset,
     Start { now_ms: u64 },
     Tick { now_ms: u64 },
     Pause { now_ms: u64 },
@@ -380,6 +472,7 @@ pub enum TimerEventInput {
 impl TimerEventInput {
     fn parts(self) -> (TimerAction, u64) {
         match self {
+            Self::SelectPreset => unreachable!("preset selection is handled before timer actions"),
             Self::Start { now_ms } => (TimerAction::Start, now_ms),
             Self::Tick { now_ms } => (TimerAction::Tick, now_ms),
             Self::Pause { now_ms } => (TimerAction::Pause, now_ms),
@@ -390,19 +483,28 @@ impl TimerEventInput {
     }
 }
 
-#[tauri::command]
-pub fn timer_dispatch(
+pub(crate) fn timer_dispatch_event(
     event: TimerEventInput,
     preset_id: Option<String>,
-    state: State<'_, AppState>,
+    state: &AppState,
 ) -> Result<TimerState, String> {
+    if matches!(&event, TimerEventInput::SelectPreset) {
+        let preset_id = preset_id.ok_or_else(|| "presetId is required".to_string())?;
+        let mut timer = state.timer.lock().map_err(error)?;
+        let current = timer.state();
+        if !matches!(current.status, TimerStatus::Idle | TimerStatus::Completed) {
+            return Err("timer preset can only be selected while idle".into());
+        }
+        *timer = TimerEngine::new(find_preset(state, &preset_id)?);
+        return Ok(timer.state());
+    }
     let (action, now_ms) = event.parts();
     let mut timer = state.timer.lock().map_err(error)?;
     if action == TimerAction::Start {
         if let Some(preset_id) = preset_id {
             let current = timer.state();
             if matches!(current.status, TimerStatus::Idle | TimerStatus::Completed) {
-                let preset = find_preset(&state, &preset_id)?;
+                let preset = find_preset(state, &preset_id)?;
                 *timer = TimerEngine::new(preset);
             }
         }
@@ -410,7 +512,7 @@ pub fn timer_dispatch(
     timer.dispatch(action, now_ms).map_err(error)
 }
 
-fn find_preset(state: &State<'_, AppState>, id: &str) -> Result<TimerPreset, String> {
+fn find_preset(state: &AppState, id: &str) -> Result<TimerPreset, String> {
     state
         .database
         .lock()
@@ -456,27 +558,12 @@ pub fn finish_focus(
         .map_err(error)
 }
 
-#[tauri::command]
-pub async fn music_playback(
-    action: String,
-    track_id: Option<String>,
-    seed: Option<i64>,
-    app: AppHandle,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        music_playback_blocking(action, track_id, seed, &state)
-    })
-    .await
-    .map_err(error)?
-}
-
-fn music_playback_blocking(
+pub(crate) fn music_playback_event(
     action: String,
     track_id: Option<String>,
     seed: Option<i64>,
     state: &AppState,
-) -> Result<(), String> {
+) -> Result<MusicPlaybackState, String> {
     if matches!(action.as_str(), "play" | "switch")
         && *state.music_disabled_session.lock().map_err(error)?
     {
@@ -487,14 +574,16 @@ fn music_playback_blocking(
     if matches!(action.as_str(), "stop" | "silence")
         && state.runtime.lock().map_err(error)?.is_none()
     {
-        return Ok(());
+        let next = MusicPlaybackState::stopped();
+        *state.music_playback.lock().map_err(error)? = next.clone();
+        return Ok(next);
     }
     let mut runtime = state.runtime.lock().map_err(error)?;
     if runtime.is_none() {
         *runtime = Some(SuperColliderRuntime::start(state.paths.runtime_config()).map_err(error)?);
     }
     let runtime = runtime.as_mut().expect("runtime was initialized");
-    match action.as_str() {
+    let next = match action.as_str() {
         "play" | "switch" => {
             let track_id = track_id.ok_or_else(|| "trackId is required".to_string())?;
             let database = state.database.lock().map_err(error)?;
@@ -514,19 +603,31 @@ fn music_playback_blocking(
             } else {
                 runtime.switch(&track.id, seed).map_err(error)?;
             }
+            MusicPlaybackState {
+                status: "playing".into(),
+                track_id: Some(track_id),
+            }
         }
         "pause" => {
             runtime.pause().map_err(error)?;
+            let mut current = state.music_playback.lock().map_err(error)?.clone();
+            current.status = "paused".into();
+            current
         }
         "resume" => {
             runtime.resume().map_err(error)?;
+            let mut current = state.music_playback.lock().map_err(error)?.clone();
+            current.status = "playing".into();
+            current
         }
         "stop" | "silence" => {
             runtime.stop().map_err(error)?;
+            MusicPlaybackState::stopped()
         }
         _ => return Err(format!("unknown playback action: {action}")),
-    }
-    Ok(())
+    };
+    *state.music_playback.lock().map_err(error)? = next.clone();
+    Ok(next)
 }
 
 fn validate_control(name: &str, value: &str, allowed: &[&str]) -> Result<(), String> {

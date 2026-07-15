@@ -44,7 +44,6 @@ describe("repository tooling", () => {
         "README.md",
         "package.json",
         "apps",
-        "packages",
         "tooling",
         "scripts",
         "docs/architecture.md",
