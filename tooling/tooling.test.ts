@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { scanForForbiddenNpmCommands } from "./repositoryScan";
 
 const root = resolve(import.meta.dir, "..");
 const json = (path: string) => JSON.parse(readFileSync(resolve(root, path), "utf8"));
@@ -36,21 +37,15 @@ describe("repository tooling", () => {
   });
 
   test("contains no npm command path", () => {
-    const scan = Bun.spawnSync(
-      [
-        "rg",
-        "-n",
-        "npm " + "(run|install)|npm " + "--prefix",
+    expect(
+      scanForForbiddenNpmCommands(root, [
         "README.md",
         "package.json",
         "apps",
         "tooling",
         "scripts",
         "docs/architecture.md",
-      ],
-      { cwd: root, stdout: "pipe", stderr: "pipe" },
-    );
-    expect(new TextDecoder().decode(scan.stdout)).toBe("");
-    expect(scan.exitCode).toBe(1);
+      ]),
+    ).toEqual([]);
   });
 });
