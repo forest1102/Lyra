@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lyraへタスク追加"
+  short_description: "LyraのTodayまたはBacklogへタスクを追加"
+  default_prompt: "Use $adding-lyra-tasks to LyraのBacklogへ「資料を整理する」を追加して。"
