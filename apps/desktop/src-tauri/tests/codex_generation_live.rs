@@ -18,6 +18,7 @@ fn codex_generates_supercollider_source_that_sclang_accepts() {
         .generate(
             GenerationControls {
                 theme: "deep-space".into(),
+                arrangement: "ambient".into(),
                 brightness: "medium".into(),
                 density: "medium".into(),
                 motion: "low".into(),

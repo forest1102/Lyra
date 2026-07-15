@@ -7,6 +7,7 @@ import {
 
 const request: MusicGenerationRequest = {
   theme: "deep-space",
+  arrangement: "ambient",
   brightness: "medium",
   density: "medium",
   motion: "low"

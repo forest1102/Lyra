@@ -9,6 +9,7 @@ fn draft(source: &str) -> GeneratedMusicDraft {
         title: "Stored track".into(),
         description: "A test track".into(),
         theme: "deep-space".into(),
+        arrangement: "lofi".into(),
         brightness: "medium".into(),
         density: "low".into(),
         motion: "low".into(),
@@ -59,4 +60,5 @@ fn saves_a_variation_as_a_child_with_a_new_seed() {
         Some(parent.id.as_str())
     );
     assert_eq!(variation.canonical_seed, 84);
+    assert_eq!(variation.arrangement, "lofi");
 }

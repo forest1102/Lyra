@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  arrangementLabel,
   generationProgressLabel,
   intensityLabel,
   phaseLabel,
@@ -8,6 +9,12 @@ import {
 } from "./labels";
 
 describe("日本語表示", () => {
+  test("BGM曲調を日本語にする", () => {
+    expect(arrangementLabel("ambient")).toBe("アンビエント");
+    expect(arrangementLabel("lofi")).toBe("Lo-fi");
+    expect(arrangementLabel("minimal-melody")).toBe("ミニマル旋律");
+  });
+
   test("BGMテーマと強度を日本語にする", () => {
     expect(themeLabel("deep-space")).toBe("深宇宙");
     expect(intensityLabel("medium")).toBe("中");

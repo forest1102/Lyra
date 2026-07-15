@@ -6,7 +6,7 @@ Lyra is a local-first focus companion for macOS. It combines multi-task Pomodoro
 
 - Focus: Sprint 15/3, Standard 25/5, Deep Focus 50/10, and saved custom presets
 - Tasks: Today/Backlog, estimated Pomodoros, completion, and multi-task focus sessions
-- BGM Studio: four themes with brightness, density, and motion controls
+- BGM Studio: four themes, ambient/Lo-fi/minimal-melody arrangements, and brightness, density, and motion controls
 - Library: generated tracks, good/poor rating, favorites, read-only SC source metadata, and saved variations
 - Live music switching: original seed, variation seed, or silence without stopping the timer
 - Desktop runtime: Rust-owned deadline timer, menu bar countdown, notification, SQLite, and close-to-menu-bar behavior
@@ -61,6 +61,16 @@ nix shell nixpkgs#cargo nixpkgs#rustc -c bunx turbo run dev --filter=@lyra/deskt
 ```
 
 The app stores SQLite and generated `.scd` files under the macOS application data directory for `app.lyra.focus`. Closing the main window hides it; the Rust timer and music runtime continue. Quitting marks running focus sessions as interrupted.
+
+## Music generation quality contract
+
+The generation prompt treats a theme as timbre and space, while the arrangement controls musical structure. Ambient is the default; saved tracks and variations retain the selected arrangement.
+
+Every Codex generation turn receives the same structured musical contract plus only the recipe for the selected arrangement and theme. Unselected recipes are omitted so their tempo, instrumentation, and texture guidance cannot conflict. The common contract asks for a major or major-pentatonic tonal center, a mid-register lead, consonant harmony, bounded layer amplitudes, separated spectral roles, gentle envelopes, and predictable phrases. It explicitly rejects sub-bass drones, semitone clusters, tritones, alarm-like repetition, fast rough modulation, abrupt stereo motion, and unconstrained pitch randomness.
+
+Subtle 1/f-like motion is expressed as bounded, multi-timescale control drift rather than as audible pink noise: slow `LFNoise1` layers may vary amplitude, filtering, pan, and phrase timing within narrow limits, but never pitch or harmony. This is an approximation for avoiding mechanical repetition, not a claim of a medical or universal relaxation effect.
+
+Automated tests lock the prompt sections and numeric constraints so they cannot silently regress. They guarantee that Codex receives the quality instructions; they do not measure perceived quality, loudness, or the actual spectrum of a generated track.
 
 ## SuperCollider compatibility gate
 
