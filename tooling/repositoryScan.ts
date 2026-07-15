@@ -1,9 +1,10 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 const forbiddenNpmCommand = new RegExp(["npm ", "(?:run|install)|npm ", "--prefix"].join(""), "g");
 
 function filesUnder(path: string): string[] {
+  if (!existsSync(path)) return [];
   if (statSync(path).isFile()) return [path];
 
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) =>

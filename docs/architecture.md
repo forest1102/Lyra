@@ -1,50 +1,29 @@
-# Lyra desktop architecture
-
-## Runtime ownership
+# Architecture
 
 ```text
-React + Vite UI
-  ├─ one-shot requests ─────────── Tauri commands ─┐
-  ├─ timer state updates ───────── timer://state   │
-  └─ music failure updates ─────── music://error   │
-                                                   ▼
-                                             Tauri Core (Rust)
-                                                   │
-                              ┌────────────────────┼───────────────┐
-                              ▼                    ▼               ▼
-                         lyra-core            Codex App       SC runtime
-                         SQLite + timer        Server JSONL    OSC v1
+React UI
+  ├─ Tauri commands ── Rust timer / SQLite / Codex generation
+  ├─ timer://state ─── Rust-authoritative timer state
+  └─ AudioEngine ───── WebChucK AudioWorklet
+                         ├─ Deck A ─┐
+                         ├─ Deck B ─┼─ Gain → limiter → output Gain
+                         └──────────┘              → AudioContext.destination
 ```
 
-`apps/desktop` is the only user-facing application. Rust owns the deadline timer, SQLite connection, Codex process, and SuperCollider process. The UI requests the initial state through Tauri commands and then treats Rust events as authoritative; it has no browser fallback or generated fixture state.
+`apps/desktop`が唯一のUIです。Rustはタイマー、SQLite、Codex生成、ChucK静的ポリシー、保存ファイルのSHA-256整合性を担当します。クライアントは音声再生を担当し、再生状態は`AudioEngine`が正です。出力先はOSのシステムデフォルトに追従します。
 
-Closing the main window hides it without stopping the Rust runtime. Clicking the menu bar item restores the same window. The application identifier remains `app.lyra.focus`, so existing SQLite and generated track data continue to use the same Application Support directory.
-
-The separate `lyra-mcp` executable remains an optional local integration. It writes to the same WAL-mode SQLite database, and the desktop UI polls tasks every 1.5 seconds to reflect MCP additions.
-
-## SuperCollider data flow
+## Generation flow
 
 ```text
-Codex JSON
-  → metadata validation
-  → Rust tokenizer / source-policy-v1
-  → track-specific SynthDef namespace
-  → sandbox-exec + validate.scd
-  → muted five-second runtime check
-  → managed .scd + SHA-256 + SQLite row
-
-Deck A Group → stereo Bus A ┐
-                             ├→ Trusted Mixer → LeakDC → Limiter(0.8) → Output
-Deck B Group → stereo Bus B ┘
+controls → Codex App Server → closed JSON/chuckSource
+         → Rust static policy（失敗時は同じthreadで修復1回）
+         → disposable muted WebChucK VM / 5秒meter
+         → Rust report confirmation
+         → preview → managed .ck + SHA-256 + SQLite
 ```
 
-The standby deck begins muted. After 100 ms without a runtime error, the trusted mixer performs a two-second crossfade. Request IDs are monotonic; a stale switch response cannot replace the most recent selection.
+ChucKソースは1〜4 voice、48KiB以下、固定UGen allowlist、`Math.srandom(__LYRA_SEED__)`を必須とします。外部I/O、動的評価、再帰、ネストしたループを拒否し、各voiceループは正の有限時間を1回だけ進めます。
 
-## Failure policy
+## Audio output
 
-- Ping every two seconds.
-- Three consecutive failures trigger a runtime restart.
-- The first failure restores the same track and seed from the beginning.
-- A second failure within five minutes disables BGM for that focus session.
-- Timer state is a separate deadline-based Rust state machine and continues through every music failure.
-- Quitting or reopening interrupts any session left in `running` state; interrupted sessions never increment the completed focus count.
+WebChucK JS/WASMと検証用Workletはアプリへ同梱され、音声実行経路はローカルで完結します。通常ビルドはシステムデフォルトへ出力し、E2Eビルドは最終ゲインを0にします。

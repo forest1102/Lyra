@@ -15,7 +15,7 @@ fn draft(source: &str) -> GeneratedMusicDraft {
         motion: "low".into(),
         bpm: 64.0,
         tail_seconds: 4.0,
-        supercollider_source: source.into(),
+        chuck_source: source.into(),
         source_sha256: "generated-hash".into(),
         canonical_seed: 42,
         audio_validation: "required".into(),
@@ -23,7 +23,7 @@ fn draft(source: &str) -> GeneratedMusicDraft {
 }
 
 #[test]
-fn saves_and_verifies_a_managed_scd_file() {
+fn saves_and_verifies_a_managed_ck_file() {
     let directory = tempfile::tempdir().unwrap();
     let db = Database::open_in_memory().unwrap();
     let store = TrackStore::new(&db, directory.path());
@@ -31,6 +31,7 @@ fn saves_and_verifies_a_managed_scd_file() {
 
     assert!(store.verify(&track).is_ok());
     assert!(std::path::Path::new(&track.source_path).starts_with(directory.path()));
+    assert!(track.source_path.ends_with(".ck"));
 }
 
 #[test]

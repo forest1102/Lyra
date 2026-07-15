@@ -15,7 +15,8 @@ fn track_fixture(directory: &Path, parent_track_id: Option<String>, seed: i64) -
         motion: "low".into(),
         bpm: 64,
         tail_seconds: 4,
-        source: "(~lyraTrack = (synthDefs: [], pattern: Pseq([1], inf));)".into(),
+        source: "Math.srandom(__LYRA_SEED__); SinOsc osc => dac; while(true) { 1::second => now; }"
+            .into(),
         canonical_seed: seed,
         directory: directory.to_path_buf(),
     }
@@ -33,7 +34,20 @@ fn migrates_and_seeds_builtin_presets() {
 }
 
 #[test]
-fn migrates_existing_v1_tracks_to_ambient() {
+fn stores_a_versioned_setting() {
+    let db = Database::open_in_memory().unwrap();
+    assert_eq!(db.get_setting("ui.theme.v1").unwrap(), None);
+
+    db.set_setting("ui.theme.v1", r#"{"mode":"dark"}"#).unwrap();
+
+    assert_eq!(
+        db.get_setting("ui.theme.v1").unwrap().as_deref(),
+        Some(r#"{"mode":"dark"}"#)
+    );
+}
+
+#[test]
+fn migration_v3_deletes_legacy_tracks_and_unlinks_focus_history() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("v1.db");
     {
@@ -69,14 +83,28 @@ fn migrates_existing_v1_tracks_to_ambient() {
                   'medium', 'medium', 'low', 64, 4, '/tmp/legacy.scd', 'hash', 42,
                   NULL, 0, '2026-07-15T00:00:00Z'
                 );
+                CREATE TABLE focus_sessions (
+                  id TEXT PRIMARY KEY,
+                  preset_id TEXT NOT NULL,
+                  music_track_id TEXT,
+                  status TEXT NOT NULL,
+                  elapsed_seconds INTEGER NOT NULL DEFAULT 0,
+                  started_at TEXT NOT NULL,
+                  ended_at TEXT
+                );
+                INSERT INTO focus_sessions VALUES(
+                  'focus-1', 'standard', 'legacy-track', 'completed', 1500,
+                  '2026-07-15T00:00:00Z', '2026-07-15T00:25:00Z'
+                );
                 "#,
             )
             .unwrap();
     }
 
     let database = Database::open(&path).unwrap();
-    let track = database.get_music_track("legacy-track").unwrap().unwrap();
-    assert_eq!(track.arrangement, "ambient");
+    assert!(database.get_music_track("legacy-track").unwrap().is_none());
+    let session = database.get_focus_session("focus-1").unwrap().unwrap();
+    assert_eq!(session.music_track_id, None);
 }
 
 #[test]
@@ -249,6 +277,7 @@ fn saves_variation_as_a_child_track() {
     assert_eq!(child.canonical_seed, 84);
     assert_eq!(parent.arrangement, "minimal-melody");
     assert_eq!(child.arrangement, "minimal-melody");
+    assert!(parent.source_path.ends_with(".ck"));
 }
 
 #[test]

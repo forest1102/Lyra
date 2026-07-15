@@ -2,40 +2,31 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 const MAX_SOURCE_BYTES: usize = 48 * 1024;
+const SEED_PLACEHOLDER: &str = "__LYRA_SEED__";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceValidation {
-    pub synth_def_names: Vec<String>,
+    pub voice_count: usize,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SourcePolicyError {
     #[error("source exceeds 48 KiB")]
     SourceTooLarge,
-    #[error("forbidden selector: .{0}")]
-    ForbiddenSelector(String),
-    #[error("selector is not allowed: .{0}")]
-    UnknownSelector(String),
     #[error("forbidden identifier: {0}")]
     ForbiddenIdentifier(String),
-    #[error("forbidden symbol: \\{0}")]
-    ForbiddenSymbol(String),
     #[error("class is not allowed: {0}")]
     UnknownClass(String),
     #[error("invalid track contract: {0}")]
     InvalidContract(String),
-    #[error("invalid namespace: {0}")]
-    InvalidNamespace(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TokenKind {
     Identifier,
-    Symbol,
-    Selector,
+    Number,
     String,
     Comment,
-    Number,
     Punctuation,
 }
 
@@ -49,127 +40,23 @@ struct Token<'a> {
 
 pub struct SourcePolicy {
     allowed_classes: HashSet<&'static str>,
-    allowed_selectors: HashSet<&'static str>,
     forbidden_identifiers: HashSet<&'static str>,
-    forbidden_selectors: HashSet<&'static str>,
 }
 
 impl SourcePolicy {
     pub fn v1() -> Self {
         Self {
             allowed_classes: [
-                "SinOsc",
-                "LFSaw",
-                "LFTri",
-                "Pulse",
-                "VarSaw",
-                "Formant",
-                "Blip",
-                "WhiteNoise",
-                "PinkNoise",
-                "BrownNoise",
-                "ClipNoise",
-                "Dust",
-                "Dust2",
-                "LFNoise0",
-                "LFNoise1",
-                "LFNoise2",
-                "Env",
-                "EnvGen",
-                "Line",
-                "XLine",
-                "Lag",
-                "Lag2",
-                "Lag3",
-                "Decay2",
-                "LPF",
-                "HPF",
-                "BPF",
-                "BRF",
-                "RLPF",
-                "RHPF",
-                "Resonz",
-                "Ringz",
-                "OnePole",
-                "LeakDC",
-                "DelayN",
-                "DelayL",
-                "DelayC",
-                "CombN",
-                "CombL",
-                "CombC",
-                "AllpassN",
-                "AllpassL",
-                "AllpassC",
-                "FreeVerb",
-                "FreeVerb2",
-                "Pan2",
-                "Balance2",
-                "Splay",
-                "SynthDef",
-                "Out",
-                "Mix",
-                "Scale",
-                "Rest",
-                "Done",
-                "Pbind",
-                "Ppar",
-                "Pseq",
-                "Prand",
-                "Pxrand",
-                "Pwrand",
-                "Pwhite",
-                "Pexprand",
-                "Pbrown",
-                "Pseries",
-                "Pgeom",
-                "Pn",
-                "Pstutter",
-                "Pdup",
-                "Pkey",
-            ]
-            .into_iter()
-            .collect(),
-            allowed_selectors: [
-                "ar",
-                "kr",
-                "ir",
-                "asr",
-                "perc",
-                "freeSelf",
-                "midicps",
-                "midiratio",
-                "dbamp",
-                "clip",
-                "range",
-                "exprange",
-                "linexp",
-                "round",
+                "Math", "Std", "SinOsc", "TriOsc", "SawOsc", "PulseOsc", "Blit", "Noise", "CNoise",
+                "ADSR", "Envelope", "LPF", "HPF", "BPF", "BRF", "ResonZ", "DelayL", "Echo",
+                "JCRev", "NRev", "Chorus", "Pan2", "Gain", "Dyno",
             ]
             .into_iter()
             .collect(),
             forbidden_identifiers: [
-                "Server", "Buffer", "File", "Pipe", "UnixCmd", "Routine", "Task", "Pfunc", "Plazy",
-                "SoundIn", "In", "DiskIn", "BufRd", "GVerb", "NetAddr", "OSCFunc", "Quarks",
-            ]
-            .into_iter()
-            .collect(),
-            forbidden_selectors: [
-                "add",
-                "play",
-                "fork",
-                "unixCmd",
-                "systemCmd",
-                "write",
-                "read",
-                "load",
-                "open",
-                "connect",
-                "sendMsg",
-                "sendBundle",
-                "do",
-                "while",
-                "loop",
+                "adc", "File", "FileIO", "Machine", "MidiIn", "MidiOut", "HidIn", "HidOut",
+                "OscIn", "OscOut", "SerialIO", "SndBuf", "LiSa", "WaveLoop", "KBHit", "me",
+                "chout", "cherr",
             ]
             .into_iter()
             .collect(),
@@ -181,183 +68,303 @@ impl SourcePolicy {
             return Err(SourcePolicyError::SourceTooLarge);
         }
         let tokens = tokenize(source);
-        for token in tokens
+        let code: Vec<&Token<'_>> = tokens
             .iter()
             .filter(|token| !matches!(token.kind, TokenKind::Comment | TokenKind::String))
-        {
-            match token.kind {
-                TokenKind::Selector => {
-                    let selector = token.text.trim_start_matches('.');
-                    if self.forbidden_selectors.contains(selector) {
-                        return Err(SourcePolicyError::ForbiddenSelector(selector.into()));
-                    }
-                    if !self.allowed_selectors.contains(selector) {
-                        return Err(SourcePolicyError::UnknownSelector(selector.into()));
-                    }
-                }
-                TokenKind::Identifier => {
-                    let identifier = token.text.trim_start_matches('~');
-                    if self.forbidden_identifiers.contains(identifier) {
-                        return Err(SourcePolicyError::ForbiddenIdentifier(identifier.into()));
-                    }
-                    if identifier.chars().next().is_some_and(char::is_uppercase)
-                        && !self.allowed_classes.contains(identifier)
-                    {
-                        return Err(SourcePolicyError::UnknownClass(identifier.into()));
-                    }
-                }
-                TokenKind::Symbol if matches!(token.text, "\\out" | "\\group") => {
-                    return Err(SourcePolicyError::ForbiddenSymbol(
-                        token.text.trim_start_matches('\\').into(),
-                    ));
-                }
-                _ => {}
+            .collect();
+
+        for token in &code {
+            if token.kind != TokenKind::Identifier {
+                continue;
+            }
+            if self.forbidden_identifiers.contains(token.text) {
+                return Err(SourcePolicyError::ForbiddenIdentifier(token.text.into()));
+            }
+            if token.text.chars().next().is_some_and(char::is_uppercase)
+                && !self.allowed_classes.contains(token.text)
+            {
+                return Err(SourcePolicyError::UnknownClass(token.text.into()));
             }
         }
 
-        require_identifier(&tokens, "~lyraTrack")?;
-        require_identifier(&tokens, "synthDefs")?;
-        require_identifier(&tokens, "pattern")?;
-
-        let synth_def_indices: Vec<usize> = tokens
+        validate_delimiters(&code)?;
+        reject_additional_loop_forms(&code)?;
+        validate_audio_parameter_ranges(&code)?;
+        require_identifier(&code, "dac")?;
+        let placeholders = code
             .iter()
-            .enumerate()
-            .filter_map(|(index, token)| {
-                (token.kind == TokenKind::Identifier && token.text == "SynthDef").then_some(index)
-            })
-            .collect();
-        if !(1..=4).contains(&synth_def_indices.len()) {
+            .filter(|token| token.kind == TokenKind::Identifier && token.text == SEED_PLACEHOLDER)
+            .count();
+        if placeholders != 1 || !contains_seed_call(&code) {
             return Err(SourcePolicyError::InvalidContract(
-                "track must contain 1 to 4 SynthDefs".into(),
+                "source must contain exactly Math.srandom(__LYRA_SEED__)".into(),
             ));
         }
 
-        let mut synth_def_names = Vec::with_capacity(synth_def_indices.len());
-        for (position, token_index) in synth_def_indices.iter().copied().enumerate() {
-            let end = synth_def_indices
-                .get(position + 1)
-                .copied()
-                .unwrap_or(tokens.len());
-            let slice = &tokens[token_index..end];
-            let name = slice
-                .iter()
-                .find(|token| token.kind == TokenKind::Symbol)
-                .map(|token| token.text.trim_start_matches('\\'))
-                .ok_or_else(|| {
-                    SourcePolicyError::InvalidContract("SynthDef is missing a symbol name".into())
-                })?;
-            if !matches!(
-                name,
-                "lyra_voice_1" | "lyra_voice_2" | "lyra_voice_3" | "lyra_voice_4"
-            ) {
-                return Err(SourcePolicyError::InvalidContract(format!(
-                    "invalid SynthDef placeholder: {name}"
-                )));
-            }
-            if synth_def_names.iter().any(|existing| existing == name) {
-                return Err(SourcePolicyError::InvalidContract(format!(
-                    "duplicate SynthDef: {name}"
-                )));
-            }
-            let control_start = slice
-                .iter()
-                .position(|token| token.kind == TokenKind::Punctuation && token.text == "|")
-                .ok_or_else(|| {
-                    SourcePolicyError::InvalidContract(format!(
-                        "SynthDef {name} is missing a control block"
-                    ))
-                })?;
-            let control_end = slice[control_start + 1..]
-                .iter()
-                .position(|token| token.kind == TokenKind::Punctuation && token.text == "|")
-                .map(|offset| control_start + 1 + offset)
-                .ok_or_else(|| {
-                    SourcePolicyError::InvalidContract(format!(
-                        "SynthDef {name} has an unterminated control block"
-                    ))
-                })?;
-            let controls = &slice[control_start + 1..control_end];
-            for control in ["out", "amp", "gate", "pan"] {
-                if !controls
-                    .iter()
-                    .any(|token| token.kind == TokenKind::Identifier && token.text == control)
-                {
-                    return Err(SourcePolicyError::InvalidContract(format!(
-                        "SynthDef {name} is missing {control} control"
-                    )));
-                }
-            }
-            if !slice.iter().any(|token| token.text == "EnvGen") {
-                return Err(SourcePolicyError::InvalidContract(format!(
-                    "SynthDef {name} is missing EnvGen"
-                )));
-            }
-            let has_free_self = slice.windows(2).any(|pair| {
-                pair[0].text == "Done"
-                    && pair[1].kind == TokenKind::Selector
-                    && pair[1].text == ".freeSelf"
-            });
-            if !has_free_self {
-                return Err(SourcePolicyError::InvalidContract(format!(
-                    "SynthDef {name} is missing Done.freeSelf"
-                )));
-            }
-            synth_def_names.push(name.to_owned());
+        let loops = loop_blocks(&code)?;
+        if !(1..=4).contains(&loops.len()) {
+            return Err(SourcePolicyError::InvalidContract(
+                "track must contain 1 to 4 voice loops".into(),
+            ));
         }
+        for (index, (open, close)) in loops.iter().copied().enumerate() {
+            if loops
+                .iter()
+                .enumerate()
+                .any(|(other, (nested_open, nested_close))| {
+                    other != index && *nested_open > open && *nested_close < close
+                })
+            {
+                return Err(SourcePolicyError::InvalidContract(
+                    "nested loops are not allowed".into(),
+                ));
+            }
+            let advances = bounded_time_advances(&code[open + 1..close])?;
+            if advances != 1 {
+                return Err(SourcePolicyError::InvalidContract(
+                    "each voice loop must contain exactly one bounded duration => now".into(),
+                ));
+            }
+        }
+        reject_recursion(&code)?;
 
-        Ok(SourceValidation { synth_def_names })
+        Ok(SourceValidation {
+            voice_count: loops.len(),
+        })
     }
 
-    pub fn namespace_synth_defs(
-        &self,
-        source: &str,
-        namespace: &str,
-    ) -> Result<String, SourcePolicyError> {
+    pub fn inject_seed(&self, source: &str, seed: i64) -> Result<String, SourcePolicyError> {
         self.validate(source)?;
-        if namespace.is_empty()
-            || !namespace
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '_')
-        {
-            return Err(SourcePolicyError::InvalidNamespace(namespace.into()));
-        }
         let tokens = tokenize(source);
-        let mut rewritten = String::with_capacity(source.len() + 32);
-        let mut cursor = 0;
-        for token in tokens {
-            rewritten.push_str(&source[cursor..token.start]);
-            if token.kind == TokenKind::Symbol
-                && matches!(
-                    token.text,
-                    "\\lyra_voice_1" | "\\lyra_voice_2" | "\\lyra_voice_3" | "\\lyra_voice_4"
-                )
-            {
-                let suffix = token.text.trim_start_matches("\\lyra_");
-                rewritten.push('\\');
-                rewritten.push_str(namespace);
-                rewritten.push('_');
-                rewritten.push_str(suffix);
-            } else {
-                rewritten.push_str(token.text);
-            }
-            cursor = token.end;
-        }
-        rewritten.push_str(&source[cursor..]);
-        Ok(rewritten)
+        let token = tokens
+            .iter()
+            .find(|token| token.kind == TokenKind::Identifier && token.text == SEED_PLACEHOLDER)
+            .ok_or_else(|| {
+                SourcePolicyError::InvalidContract("seed placeholder is missing".into())
+            })?;
+        let mut result = String::with_capacity(source.len());
+        result.push_str(&source[..token.start]);
+        result.push_str(&seed.to_string());
+        result.push_str(&source[token.end..]);
+        Ok(result)
     }
 }
 
-fn require_identifier(tokens: &[Token<'_>], required: &str) -> Result<(), SourcePolicyError> {
-    if tokens
+fn require_identifier(tokens: &[&Token<'_>], name: &str) -> Result<(), SourcePolicyError> {
+    tokens
         .iter()
-        .any(|token| token.kind == TokenKind::Identifier && token.text == required)
-    {
+        .any(|token| token.kind == TokenKind::Identifier && token.text == name)
+        .then_some(())
+        .ok_or_else(|| SourcePolicyError::InvalidContract(format!("missing {name}")))
+}
+
+fn contains_seed_call(tokens: &[&Token<'_>]) -> bool {
+    tokens.windows(7).any(|window| {
+        window[0].text == "Math"
+            && window[1].text == "."
+            && window[2].text == "srandom"
+            && window[3].text == "("
+            && window[4].text == SEED_PLACEHOLDER
+            && window[5].text == ")"
+            && window[6].text == ";"
+    })
+}
+
+fn validate_delimiters(tokens: &[&Token<'_>]) -> Result<(), SourcePolicyError> {
+    let mut stack = Vec::new();
+    for token in tokens {
+        match token.text {
+            "(" | "{" | "[" => stack.push(token.text),
+            ")" | "}" | "]" => {
+                let expected = match token.text {
+                    ")" => "(",
+                    "}" => "{",
+                    _ => "[",
+                };
+                if stack.pop() != Some(expected) {
+                    return Err(SourcePolicyError::InvalidContract(
+                        "unbalanced delimiter".into(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    if stack.is_empty() {
         Ok(())
     } else {
-        Err(SourcePolicyError::InvalidContract(format!(
-            "missing {required}"
-        )))
+        Err(SourcePolicyError::InvalidContract(
+            "unbalanced delimiter".into(),
+        ))
     }
+}
+
+fn loop_blocks(tokens: &[&Token<'_>]) -> Result<Vec<(usize, usize)>, SourcePolicyError> {
+    let mut loops = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind != TokenKind::Identifier || token.text != "while" {
+            continue;
+        }
+        if tokens.get(index + 1).map(|token| token.text) != Some("(")
+            || tokens.get(index + 2).map(|token| token.text) != Some("true")
+            || tokens.get(index + 3).map(|token| token.text) != Some(")")
+            || tokens.get(index + 4).map(|token| token.text) != Some("{")
+        {
+            return Err(SourcePolicyError::InvalidContract(
+                "each voice loop must use while (true)".into(),
+            ));
+        }
+        let open = index + 4;
+        let close = matching_delimiter(tokens, open, "{", "}")?;
+        loops.push((open, close));
+    }
+    Ok(loops)
+}
+
+fn reject_additional_loop_forms(tokens: &[&Token<'_>]) -> Result<(), SourcePolicyError> {
+    if let Some(token) = tokens.iter().find(|token| {
+        token.kind == TokenKind::Identifier
+            && matches!(token.text, "for" | "do" | "repeat" | "until")
+    }) {
+        return Err(SourcePolicyError::InvalidContract(format!(
+            "additional loop form is not allowed: {}",
+            token.text
+        )));
+    }
+    Ok(())
+}
+
+fn validate_audio_parameter_ranges(tokens: &[&Token<'_>]) -> Result<(), SourcePolicyError> {
+    for (index, token) in tokens.iter().enumerate() {
+        if token.text != "="
+            || tokens.get(index + 1).map(|token| token.text) != Some(">")
+            || tokens.get(index + 3).map(|token| token.text) != Some(".")
+        {
+            continue;
+        }
+        let Some(property) = tokens.get(index + 4).map(|token| token.text) else {
+            continue;
+        };
+        let Some(number) = index.checked_sub(1).and_then(|offset| tokens.get(offset)) else {
+            continue;
+        };
+        if number.kind != TokenKind::Number {
+            continue;
+        }
+        let mut value: f64 = number.text.parse().map_err(|_| {
+            SourcePolicyError::InvalidContract(format!(
+                "{property} must use a finite numeric literal"
+            ))
+        })?;
+        if index >= 2 && tokens[index - 2].text == "-" {
+            value = -value;
+        }
+        let allowed = match property {
+            "gain" => (0.0..=1.0).contains(&value),
+            "freq" => (20.0..=20_000.0).contains(&value),
+            "pan" => (-1.0..=1.0).contains(&value),
+            "mix" | "width" => (0.0..=1.0).contains(&value),
+            "feedback" => (0.0..=0.99).contains(&value),
+            _ => continue,
+        };
+        if !value.is_finite() || !allowed {
+            return Err(SourcePolicyError::InvalidContract(format!(
+                "audio parameter is out of range: {property}={value}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn matching_delimiter(
+    tokens: &[&Token<'_>],
+    open_index: usize,
+    open: &str,
+    close: &str,
+) -> Result<usize, SourcePolicyError> {
+    let mut depth = 0;
+    for (index, token) in tokens.iter().enumerate().skip(open_index) {
+        if token.text == open {
+            depth += 1;
+        }
+        if token.text == close {
+            depth -= 1;
+            if depth == 0 {
+                return Ok(index);
+            }
+        }
+    }
+    Err(SourcePolicyError::InvalidContract(
+        "unbalanced delimiter".into(),
+    ))
+}
+
+fn bounded_time_advances(tokens: &[&Token<'_>]) -> Result<usize, SourcePolicyError> {
+    let mut count = 0;
+    for window in tokens.windows(7) {
+        if window[0].kind == TokenKind::Number
+            && window[1].text == ":"
+            && window[2].text == ":"
+            && window[3].kind == TokenKind::Identifier
+            && window[4].text == "="
+            && window[5].text == ">"
+            && window[6].text == "now"
+        {
+            let value: f64 = window[0].text.parse().map_err(|_| {
+                SourcePolicyError::InvalidContract("duration must be numeric".into())
+            })?;
+            let milliseconds = match window[3].text {
+                "ms" => value,
+                "second" => value * 1000.0,
+                "samp" => value / 44.1,
+                unit => {
+                    return Err(SourcePolicyError::InvalidContract(format!(
+                        "duration unit is not allowed: {unit}"
+                    )))
+                }
+            };
+            if !milliseconds.is_finite() || !(1.0..=10_000.0).contains(&milliseconds) {
+                return Err(SourcePolicyError::InvalidContract(
+                    "duration must be between 1 ms and 10 seconds".into(),
+                ));
+            }
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+fn reject_recursion(tokens: &[&Token<'_>]) -> Result<(), SourcePolicyError> {
+    for (index, token) in tokens.iter().enumerate() {
+        if token.text != "fun" {
+            continue;
+        }
+        let Some(name_index) = tokens[index + 1..]
+            .iter()
+            .position(|candidate| candidate.text == "(")
+            .map(|offset| index + offset)
+        else {
+            continue;
+        };
+        let name = tokens[name_index].text;
+        let Some(open) = tokens[name_index + 1..]
+            .iter()
+            .position(|candidate| candidate.text == "{")
+            .map(|offset| name_index + 1 + offset)
+        else {
+            continue;
+        };
+        let close = matching_delimiter(tokens, open, "{", "}")?;
+        if tokens[open + 1..close]
+            .iter()
+            .any(|candidate| candidate.kind == TokenKind::Identifier && candidate.text == name)
+        {
+            return Err(SourcePolicyError::InvalidContract(format!(
+                "recursive function is not allowed: {name}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn tokenize(source: &str) -> Vec<Token<'_>> {
@@ -396,27 +403,7 @@ fn tokenize(source: &str) -> Vec<Token<'_>> {
                 }
             }
             (TokenKind::String, index)
-        } else if bytes[index] == b'\\' {
-            index += 1;
-            while index < bytes.len()
-                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
-            {
-                index += 1;
-            }
-            (TokenKind::Symbol, index)
-        } else if bytes[index] == b'.'
-            && bytes
-                .get(index + 1)
-                .is_some_and(|byte| byte.is_ascii_alphabetic())
-        {
-            index += 1;
-            while index < bytes.len()
-                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
-            {
-                index += 1;
-            }
-            (TokenKind::Selector, index)
-        } else if bytes[index].is_ascii_alphabetic() || matches!(bytes[index], b'_' | b'~') {
+        } else if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
             index += 1;
             while index < bytes.len()
                 && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
@@ -424,11 +411,13 @@ fn tokenize(source: &str) -> Vec<Token<'_>> {
                 index += 1;
             }
             (TokenKind::Identifier, index)
-        } else if bytes[index].is_ascii_digit() {
+        } else if bytes[index].is_ascii_digit()
+            || (bytes[index] == b'.' && bytes.get(index + 1).is_some_and(u8::is_ascii_digit))
+        {
             index += 1;
             while index < bytes.len()
                 && (bytes[index].is_ascii_digit()
-                    || matches!(bytes[index], b'.' | b'e' | b'E' | b'-'))
+                    || matches!(bytes[index], b'.' | b'e' | b'E' | b'+' | b'-'))
             {
                 index += 1;
             }

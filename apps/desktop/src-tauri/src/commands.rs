@@ -1,8 +1,6 @@
 use crate::music::codex_client::{resolve_codex_binary, CodexClient, GenerationControls};
 use crate::music::generation::{GeneratedMusicDraft, GenerationService};
-use crate::music::runtime::{MusicRuntimeConfig, SuperColliderRuntime};
 use crate::music::track_store::TrackStore;
-use crate::music::validator::StaticValidator;
 use lyra_core::{
     AddTask, Database, FocusSession, MusicTrackRecord, Task, TaskList, TimerAction, TimerEngine,
     TimerPhase, TimerPreset, TimerState, TimerStatus,
@@ -10,49 +8,42 @@ use lyra_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 
 pub struct NativePaths {
     pub data_directory: PathBuf,
     pub track_directory: PathBuf,
     pub generation_directory: PathBuf,
-    pub supercollider_directory: PathBuf,
 }
 
 impl NativePaths {
-    pub fn new(data_directory: PathBuf, supercollider_directory: PathBuf) -> Self {
+    pub fn new(data_directory: PathBuf) -> Self {
         Self {
             track_directory: data_directory.join("tracks"),
             generation_directory: data_directory.join("generation"),
             data_directory,
-            supercollider_directory,
         }
     }
 
-    pub(crate) fn runtime_config(&self) -> MusicRuntimeConfig {
-        let app = PathBuf::from("/Applications/SuperCollider.app");
-        let local_sclang = self.data_directory.join("supercollider/runtime/sclang");
-        let default_sclang = if local_sclang.is_file() {
-            local_sclang
-        } else {
-            app.join("Contents/MacOS/sclang")
-        };
-        MusicRuntimeConfig {
-            sclang_path: std::env::var_os("LYRA_SCLANG_PATH")
-                .map(PathBuf::from)
-                .unwrap_or(default_sclang),
-            scsynth_path: std::env::var_os("LYRA_SCSYNTH_PATH")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| app.join("Contents/Resources/scsynth")),
-            plugin_path: std::env::var_os("LYRA_SC_PLUGIN_PATH")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| app.join("Contents/Resources/plugins")),
-            language_config: self.supercollider_directory.join("sclang_conf.yaml"),
-            bootstrap_script: self.supercollider_directory.join("bootstrap.scd"),
-            xdg_config_home: self.data_directory.join("supercollider/config"),
-            xdg_data_home: self.data_directory.join("supercollider/data"),
+    pub fn cleanup_legacy_audio(&self) -> std::io::Result<()> {
+        let legacy_runtime = self.data_directory.join("supercollider");
+        if legacy_runtime.exists() {
+            std::fs::remove_dir_all(legacy_runtime)?;
         }
+        for directory in [&self.track_directory, &self.generation_directory] {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|extension| extension == "scd") {
+                    std::fs::remove_file(path)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -60,28 +51,10 @@ pub struct AppState {
     pub database: Mutex<Database>,
     pub timer: Mutex<TimerEngine>,
     pub generation: Mutex<Option<GenerationService<CodexClient>>>,
+    pub generation_active: Arc<AtomicBool>,
+    pub generation_cancellation: Arc<AtomicBool>,
     pub drafts: Mutex<HashMap<String, GeneratedMusicDraft>>,
-    pub runtime: Mutex<Option<SuperColliderRuntime>>,
-    pub music_playback: Mutex<MusicPlaybackState>,
-    pub music_control: crate::ipc::MusicControlGate,
-    pub music_disabled_session: Mutex<bool>,
     pub paths: NativePaths,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MusicPlaybackState {
-    pub status: String,
-    pub track_id: Option<String>,
-}
-
-impl MusicPlaybackState {
-    pub(crate) fn stopped() -> Self {
-        Self {
-            status: "stopped".into(),
-            track_id: None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -233,14 +206,27 @@ pub async fn generate_music(
     on_progress: Channel<MusicGenerationProgress>,
     app: AppHandle,
 ) -> Result<GeneratedMusicDraft, String> {
+    let generation_active = app.state::<AppState>().generation_active.clone();
+    generation_active
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| "BGMはすでに生成中です".to_string())?;
+    app.state::<AppState>()
+        .generation_cancellation
+        .store(false, Ordering::Release);
     send_generation_progress(&on_progress, "started");
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         send_generation_progress(&on_progress, "coding");
         let state = app.state::<AppState>();
         generate_music_blocking(request, &state)
     })
-    .await
-    .map_err(error)?
+    .await;
+    generation_active.store(false, Ordering::Release);
+    result.map_err(error)?
+}
+
+#[tauri::command]
+pub fn cancel_music_generation(state: State<'_, AppState>) {
+    state.generation_cancellation.store(true, Ordering::Release);
 }
 
 fn generate_music_blocking(
@@ -269,19 +255,17 @@ fn generate_music_blocking(
         let timer = state.timer.lock().map_err(error)?.state();
         timer.status == TimerStatus::Running && timer.phase == TimerPhase::Focus
     };
-    let mut generation = state
-        .generation
-        .try_lock()
-        .map_err(|_| "BGMはすでに生成中です".to_string())?;
+    let mut generation = state.generation.lock().map_err(error)?;
     if generation.is_none() {
         let client = CodexClient::start(
             resolve_codex_binary(),
             state.paths.generation_directory.clone(),
+            state.generation_cancellation.clone(),
         )
         .map_err(error)?;
         *generation = Some(GenerationService::new(client));
     }
-    let draft = generation
+    let generated = generation
         .as_mut()
         .expect("generation service was initialized")
         .generate(
@@ -293,8 +277,14 @@ fn generate_music_blocking(
                 motion: request.motion,
             },
             focus_active,
-        )
-        .map_err(error)?;
+        );
+    let draft = match generated {
+        Ok(draft) => draft,
+        Err(generation_error) => {
+            *generation = None;
+            return Err(error(generation_error));
+        }
+    };
     state
         .drafts
         .lock()
@@ -328,101 +318,72 @@ pub fn save_music_draft(
         .map_err(error)
 }
 
-#[tauri::command]
-pub async fn preview_music_draft(
-    draft_id: String,
-    on_progress: Channel<MusicGenerationProgress>,
-    app: AppHandle,
-) -> Result<GeneratedMusicDraft, String> {
-    send_generation_progress(&on_progress, "started");
-    let worker_app = app.clone();
-    let draft = tauri::async_runtime::spawn_blocking(move || {
-        let state = worker_app.state::<AppState>();
-        preview_music_draft_blocking(draft_id, &state, &on_progress)
-    })
-    .await
-    .map_err(error)??;
-    let playback = app
-        .state::<AppState>()
-        .music_playback
-        .lock()
-        .map_err(error)?
-        .clone();
-    let _ = app.emit("music://state", playback);
-    Ok(draft)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DraftValidationReport {
+    pub duration_ms: u64,
+    pub elapsed_audio_seconds: f64,
+    pub peak: f64,
+    pub non_silent_ms: u64,
+    pub non_finite_samples: u64,
+    pub processor_errors: u64,
 }
 
-fn preview_music_draft_blocking(
+fn validate_audio_report(report: &DraftValidationReport) -> Result<(), String> {
+    if report.duration_ms != 5_000
+        || !report.elapsed_audio_seconds.is_finite()
+        || report.elapsed_audio_seconds < 4.9
+        || !report.peak.is_finite()
+        || !(0.0..=1.0).contains(&report.peak)
+        || report.non_silent_ms < 250
+        || report.non_finite_samples != 0
+        || report.processor_errors != 0
+    {
+        return Err("WebChucK audio validation report did not meet the safety thresholds".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn confirm_music_draft_validation(
     draft_id: String,
-    state: &AppState,
-    on_progress: &Channel<MusicGenerationProgress>,
+    report: DraftValidationReport,
+    state: State<'_, AppState>,
 ) -> Result<GeneratedMusicDraft, String> {
-    let timer = state.timer.lock().map_err(error)?.state();
-    if timer.status == TimerStatus::Running && timer.phase == TimerPhase::Focus {
-        return Err("audio validation is deferred until focus ends".into());
-    }
-    let mut draft = state
-        .drafts
-        .lock()
-        .map_err(error)?
-        .get(&draft_id)
-        .cloned()
+    validate_audio_report(&report)?;
+    let mut drafts = state.drafts.lock().map_err(error)?;
+    let draft = drafts
+        .get_mut(&draft_id)
         .ok_or_else(|| "music draft was not found".to_string())?;
-    std::fs::create_dir_all(&state.paths.generation_directory).map_err(error)?;
-    let source_path = state
-        .paths
-        .generation_directory
-        .join(format!("{}.scd", draft.id));
-    std::fs::write(&source_path, draft.supercollider_source.as_bytes()).map_err(error)?;
-
-    let runtime_config = state.paths.runtime_config();
-    send_generation_progress(on_progress, "validating");
-    StaticValidator::new()
-        .validate_with_sclang(
-            &runtime_config.sclang_path,
-            &runtime_config.language_config,
-            &state.paths.supercollider_directory.join("validate.scd"),
-            &source_path,
-        )
-        .map_err(error)?;
-
-    let mut runtime = state.runtime.lock().map_err(error)?;
-    if runtime.is_none() {
-        *runtime = Some(SuperColliderRuntime::start(runtime_config).map_err(error)?);
-    }
-    let runtime = runtime.as_mut().expect("runtime was initialized");
-    runtime
-        .validate_muted(
-            &draft.id,
-            source_path.to_string_lossy().as_ref(),
-            draft.bpm as f32,
-            draft.canonical_seed,
-        )
-        .map_err(error)?;
     draft.audio_validation = "passed".into();
-    state
-        .drafts
-        .lock()
-        .map_err(error)?
-        .insert(draft.id.clone(), draft.clone());
+    Ok(draft.clone())
+}
 
-    send_generation_progress(on_progress, "previewing");
-    runtime.set_volume(0.8).map_err(error)?;
-    runtime
-        .load_track(
-            &draft.id,
-            source_path.to_string_lossy().as_ref(),
-            draft.bpm as f32,
-        )
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicTrackSource {
+    pub chuck_source: String,
+    pub source_sha256: String,
+}
+
+#[tauri::command]
+pub fn get_music_track_source(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<MusicTrackSource, String> {
+    let database = state.database.lock().map_err(error)?;
+    let track = database
+        .get_music_track(&track_id)
+        .map_err(error)?
+        .ok_or_else(|| "track was not found".to_string())?;
+    TrackStore::new(&database, &state.paths.track_directory)
+        .verify(&track)
         .map_err(error)?;
-    runtime
-        .play(&draft.id, draft.canonical_seed)
-        .map_err(error)?;
-    *state.music_playback.lock().map_err(error)? = MusicPlaybackState {
-        status: "playing".into(),
-        track_id: Some(draft.id.clone()),
-    };
-    Ok(draft)
+    let chuck_source = std::fs::read_to_string(&track.source_path).map_err(error)?;
+    Ok(MusicTrackSource {
+        chuck_source,
+        source_sha256: track.source_sha256,
+    })
 }
 
 #[tauri::command]
@@ -534,10 +495,6 @@ pub fn start_focus(
     music_track_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<FocusSession, String> {
-    *state.music_disabled_session.lock().map_err(error)? = false;
-    if let Some(runtime) = state.runtime.lock().map_err(error)?.as_mut() {
-        runtime.coordinator.reset_for_new_focus_session();
-    }
     state
         .database
         .lock()
@@ -561,81 +518,6 @@ pub fn finish_focus(
         .map_err(error)
 }
 
-fn playback_without_runtime(action: &str) -> Option<MusicPlaybackState> {
-    matches!(action, "pause" | "resume" | "stop" | "silence").then(MusicPlaybackState::stopped)
-}
-
-pub(crate) fn music_playback_event(
-    action: String,
-    track_id: Option<String>,
-    seed: Option<i64>,
-    state: &AppState,
-) -> Result<MusicPlaybackState, String> {
-    if matches!(action.as_str(), "play" | "switch")
-        && *state.music_disabled_session.lock().map_err(error)?
-    {
-        return Err(
-            "BGM is disabled for this focus session after repeated runtime failures".into(),
-        );
-    }
-    if state.runtime.lock().map_err(error)?.is_none() {
-        if let Some(next) = playback_without_runtime(&action) {
-            *state.music_playback.lock().map_err(error)? = next.clone();
-            return Ok(next);
-        }
-    }
-    let mut runtime = state.runtime.lock().map_err(error)?;
-    if runtime.is_none() {
-        *runtime = Some(SuperColliderRuntime::start(state.paths.runtime_config()).map_err(error)?);
-    }
-    let runtime = runtime.as_mut().expect("runtime was initialized");
-    let next = match action.as_str() {
-        "play" | "switch" => {
-            let track_id = track_id.ok_or_else(|| "trackId is required".to_string())?;
-            let database = state.database.lock().map_err(error)?;
-            let track = database
-                .get_music_track(&track_id)
-                .map_err(error)?
-                .ok_or_else(|| "track was not found".to_string())?;
-            TrackStore::new(&database, &state.paths.track_directory)
-                .verify(&track)
-                .map_err(error)?;
-            runtime
-                .load_track(&track.id, &track.source_path, track.bpm as f32)
-                .map_err(error)?;
-            let seed = seed.unwrap_or(track.canonical_seed);
-            if action == "play" {
-                runtime.play(&track.id, seed).map_err(error)?;
-            } else {
-                runtime.switch(&track.id, seed).map_err(error)?;
-            }
-            MusicPlaybackState {
-                status: "playing".into(),
-                track_id: Some(track_id),
-            }
-        }
-        "pause" => {
-            runtime.pause().map_err(error)?;
-            let mut current = state.music_playback.lock().map_err(error)?.clone();
-            current.status = "paused".into();
-            current
-        }
-        "resume" => {
-            runtime.resume().map_err(error)?;
-            let mut current = state.music_playback.lock().map_err(error)?.clone();
-            current.status = "playing".into();
-            current
-        }
-        "stop" | "silence" => {
-            runtime.stop().map_err(error)?;
-            MusicPlaybackState::stopped()
-        }
-        _ => return Err(format!("unknown playback action: {action}")),
-    };
-    *state.music_playback.lock().map_err(error)? = next.clone();
-    Ok(next)
-}
-
 fn validate_control(name: &str, value: &str, allowed: &[&str]) -> Result<(), String> {
     if allowed.contains(&value) {
         Ok(())
@@ -650,7 +532,7 @@ fn validate_music_arrangement(value: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{playback_without_runtime, validate_music_arrangement};
+    use super::{validate_audio_report, validate_music_arrangement, DraftValidationReport};
 
     #[test]
     fn accepts_only_supported_music_arrangements() {
@@ -661,12 +543,21 @@ mod tests {
     }
 
     #[test]
-    fn pause_and_resume_without_music_leave_the_runtime_stopped() {
-        for action in ["pause", "resume"] {
-            let state = playback_without_runtime(action).expect("idle playback state");
-            assert_eq!(state.status, "stopped");
-            assert!(state.track_id.is_none());
-        }
-        assert!(playback_without_runtime("play").is_none());
+    fn rechecks_client_audio_validation_thresholds() {
+        let valid = DraftValidationReport {
+            duration_ms: 5_000,
+            elapsed_audio_seconds: 4.9,
+            peak: 1.0,
+            non_silent_ms: 250,
+            non_finite_samples: 0,
+            processor_errors: 0,
+        };
+        assert!(validate_audio_report(&valid).is_ok());
+
+        let unsafe_peak = DraftValidationReport {
+            peak: 1.01,
+            ..valid
+        };
+        assert!(validate_audio_report(&unsafe_peak).is_err());
     }
 }

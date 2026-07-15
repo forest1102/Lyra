@@ -14,8 +14,6 @@ e2e = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 
 [dependencies]
 lyra-core = { path = "../../../crates/lyra-core" }
-libc = "0.2"
-regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

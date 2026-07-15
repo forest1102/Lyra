@@ -1,5 +1,0 @@
-includePaths:
-  - /Applications/SuperCollider.app/Contents/Resources/SCClassLibrary
-excludePaths: []
-postInlineWarnings: false
-excludeDefaultPaths: true

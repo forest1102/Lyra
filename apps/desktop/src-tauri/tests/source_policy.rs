@@ -1,43 +1,36 @@
 use lyra_desktop::music::source_policy::{SourcePolicy, SourcePolicyError};
 
-const VALID: &str = r#"(
-~lyraTrack = (
-  synthDefs: [
-    SynthDef(\lyra_voice_1, { |out=0, amp=0.08, gate=1, pan=0, freq=220|
-      var env = EnvGen.kr(Env.asr(0.5, 1, 3), gate, doneAction: Done.freeSelf);
-      var sig = SinOsc.ar(freq);
-      Out.ar(out, Pan2.ar(sig, pan) * amp * env);
-    })
-  ],
-  pattern: Pbind(
-    \instrument, \lyra_voice_1,
-    \dur, Pseq([1, 2, 1, 4], inf),
-    \degree, Pwhite(0, 7, inf),
-    \amp, 0.08
-  )
-);
-)"#;
+const VALID: &str = r#"
+Math.srandom(__LYRA_SEED__);
+SinOsc oscillator => ADSR envelope => LPF filter => Pan2 pan => Gain master => dac;
+0.12 => master.gain;
+440 => oscillator.freq;
+while (true) {
+    envelope.keyOn();
+    500::ms => now;
+}
+"#;
 
 #[test]
-fn accepts_the_constrained_track_contract() {
+fn accepts_a_bounded_webchuck_voice() {
     let validation = SourcePolicy::v1().validate(VALID).unwrap();
-    assert_eq!(validation.synth_def_names, vec!["lyra_voice_1"]);
+    assert_eq!(validation.voice_count, 1);
 }
 
 #[test]
 fn ignores_forbidden_words_inside_comments_and_strings() {
     let source = VALID.replace(
-        "var sig = SinOsc.ar(freq);",
-        "// Buffer and .play are documentation\n      var label = \"fork Pfunc\";\n      var sig = SinOsc.ar(freq);",
+        "440 => oscillator.freq;",
+        "// FileIO and adc are documentation\n\"Machine.eval\" => string label;\n440 => oscillator.freq;",
     );
     SourcePolicy::v1().validate(&source).unwrap();
 }
 
 #[test]
-fn rejects_forbidden_selectors_and_classes() {
-    for token in [".play", ".add", "Buffer", "Pfunc", "SoundIn", "GVerb"] {
+fn rejects_external_io_and_dynamic_runtime_access() {
+    for token in ["adc", "FileIO", "Machine", "MidiIn", "HidIn", "OscIn"] {
         let error = SourcePolicy::v1()
-            .validate(&format!("{VALID}\n{token}"))
+            .validate(&format!("{VALID}\n{token} blocked;"))
             .unwrap_err();
         assert!(
             error.to_string().contains(token),
@@ -47,38 +40,74 @@ fn rejects_forbidden_selectors_and_classes() {
 }
 
 #[test]
-fn rejects_unknown_selectors_even_when_they_are_not_explicitly_forbidden() {
+fn rejects_unknown_ugens() {
     let error = SourcePolicy::v1()
-        .validate(&format!("{VALID}\nSinOsc.evil(1)"))
+        .validate(&VALID.replace("SinOsc", "UnsafeOsc"))
         .unwrap_err();
-    assert!(error.to_string().contains(".evil"));
+    assert!(matches!(error, SourcePolicyError::UnknownClass(name) if name == "UnsafeOsc"));
 }
 
 #[test]
-fn rejects_pattern_routing_keys() {
-    let source = VALID.replace("\\amp, 0.08", "\\out, 0, \\amp, 0.08");
-    let error = SourcePolicy::v1().validate(&source).unwrap_err();
-    assert!(matches!(error, SourcePolicyError::ForbiddenSymbol(symbol) if symbol == "out"));
+fn requires_exactly_one_seed_placeholder() {
+    let missing = VALID.replace("Math.srandom(__LYRA_SEED__);", "Math.srandom(42);");
+    assert!(SourcePolicy::v1().validate(&missing).is_err());
+
+    let duplicate = format!("Math.srandom(__LYRA_SEED__);\n{VALID}");
+    assert!(SourcePolicy::v1().validate(&duplicate).is_err());
 }
 
 #[test]
-fn requires_all_synthdef_controls_and_cleanup() {
-    let source = VALID.replace("gate=1, ", "").replace("Done.freeSelf", "0");
-    let error = SourcePolicy::v1().validate(&source).unwrap_err();
-    assert!(error.to_string().contains("gate"));
+fn rejects_nested_or_unbounded_voice_loops() {
+    let nested = VALID.replace(
+        "envelope.keyOn();",
+        "while (true) { 10::ms => now; }\nenvelope.keyOn();",
+    );
+    assert!(SourcePolicy::v1().validate(&nested).is_err());
+
+    let missing_advance = VALID.replace("500::ms => now;", "oscillator.freq => float value;");
+    assert!(SourcePolicy::v1().validate(&missing_advance).is_err());
+
+    let two_advances = VALID.replace("500::ms => now;", "250::ms => now;\n250::ms => now;");
+    assert!(SourcePolicy::v1().validate(&two_advances).is_err());
+
+    let conditional = VALID.replace("while (true)", "while (running)");
+    assert!(SourcePolicy::v1().validate(&conditional).is_err());
+
+    let additional_loop = VALID.replace(
+        "envelope.keyOn();",
+        "for (0 => int i; i < 2; i++) { envelope.keyOn(); }",
+    );
+    assert!(SourcePolicy::v1().validate(&additional_loop).is_err());
 }
 
 #[test]
-fn rewrites_only_placeholder_symbols() {
-    let source = format!("// \\lyra_voice_1 stays in docs\n{VALID}");
-    let rewritten = SourcePolicy::v1()
-        .namespace_synth_defs(&source, "track_a1b2")
-        .unwrap();
+fn rejects_out_of_range_audio_parameters() {
+    for invalid in [
+        VALID.replace("0.12 => master.gain;", "1.01 => master.gain;"),
+        VALID.replace("440 => oscillator.freq;", "19 => oscillator.freq;"),
+        VALID.replace("440 => oscillator.freq;", "20001 => oscillator.freq;"),
+    ] {
+        assert!(SourcePolicy::v1().validate(&invalid).is_err());
+    }
+}
 
-    assert!(rewritten.contains("// \\lyra_voice_1 stays in docs"));
-    assert!(rewritten.contains("\\track_a1b2_voice_1"));
-    assert!(!rewritten
+#[test]
+fn injects_only_the_integer_seed_placeholder() {
+    let source = format!("// __LYRA_SEED__ stays in docs\n{VALID}");
+    let injected = SourcePolicy::v1().inject_seed(&source, 42).unwrap();
+
+    assert!(injected.contains("// __LYRA_SEED__ stays in docs"));
+    assert!(injected.contains("Math.srandom(42);"));
+    assert!(!injected
         .lines()
         .skip(1)
-        .any(|line| line.contains("\\lyra_voice_1")));
+        .any(|line| line.contains("__LYRA_SEED__")));
+}
+
+#[test]
+fn rejects_unbalanced_delimiters() {
+    let error = SourcePolicy::v1()
+        .validate(&VALID.replace("}", ""))
+        .unwrap_err();
+    assert!(error.to_string().contains("delimiter"));
 }

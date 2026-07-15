@@ -70,6 +70,21 @@ export type TrackRating = "good" | "poor" | null;
 export interface MusicPlaybackState {
   status: "stopped" | "playing" | "paused";
   trackId: string | null;
+  disabled: boolean;
+}
+
+export interface DraftValidationReport {
+  durationMs: 5000;
+  elapsedAudioSeconds: number;
+  peak: number;
+  nonSilentMs: number;
+  nonFiniteSamples: number;
+  processorErrors: number;
+}
+
+export interface MusicTrackSource {
+  chuckSource: string;
+  sourceSha256: string;
 }
 
 export interface MusicTrack {
@@ -104,8 +119,8 @@ export interface MusicDraft {
   motion: MusicIntensity;
   bpm: number;
   tailSeconds: number;
-  supercolliderSource: string;
+  chuckSource: string;
   sourceSha256: string;
   canonicalSeed: number;
-  audioValidation: "required" | "deferred_until_focus_ends" | "passed";
+  audioValidation: "pending" | "deferred_until_focus_ends" | "passed" | "failed";
 }

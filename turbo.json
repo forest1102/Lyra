@@ -2,17 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "cacheDir": ".turbo/cache",
   "globalDependencies": ["tsconfig.json", "Cargo.toml", "Cargo.lock"],
-  "globalPassThroughEnv": [
-    "LYRA_SC_BUILD_ROOT",
-    "LYRA_SC_RUNTIME_DIR",
-    "LYRA_SCLANG_PATH",
-    "LYRA_SCSYNTH_PATH",
-    "LYRA_SC_PLUGIN_PATH",
-    "LYRA_CODEX_PATH",
-    "SCLANG",
-    "SCSYNTH",
-    "SC_APP"
-  ],
+  "globalPassThroughEnv": ["LYRA_CODEX_PATH"],
   "tasks": {
     "dev": {
       "cache": false,
@@ -43,18 +33,6 @@
       "cache": false
     },
     "build:desktop": {
-      "cache": false
-    },
-    "build:supercollider": {
-      "cache": false
-    },
-    "check:supercollider": {
-      "cache": false
-    },
-    "check:generation": {
-      "cache": false
-    },
-    "check:runtime": {
       "cache": false
     },
     "@lyra/native-tooling#test": {

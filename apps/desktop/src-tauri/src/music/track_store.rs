@@ -43,7 +43,7 @@ impl<'a> TrackStore<'a> {
                 motion: draft.motion,
                 bpm: draft.bpm.round() as i64,
                 tail_seconds: draft.tail_seconds.round() as i64,
-                source: draft.supercollider_source,
+                source: draft.chuck_source,
                 canonical_seed: draft.canonical_seed,
                 directory: self.directory.clone(),
             })

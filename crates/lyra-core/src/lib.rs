@@ -427,6 +427,16 @@ impl Database {
                 "#,
             )?;
         }
+        if version < 3 {
+            transaction.execute_batch(
+                r#"
+                UPDATE focus_sessions SET music_track_id = NULL;
+                DELETE FROM music_tracks;
+                INSERT INTO schema_migrations(version, applied_at)
+                  VALUES(3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                "#,
+            )?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -560,6 +570,23 @@ impl Database {
         Ok(preset)
     }
 
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        self.connection
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
     pub fn start_focus_session(
         &self,
         task_ids: &[String],
@@ -674,7 +701,7 @@ impl Database {
         }
         std::fs::create_dir_all(&input.directory)?;
         let id = Uuid::new_v4().to_string();
-        let source_path = input.directory.join(format!("{id}.scd"));
+        let source_path = input.directory.join(format!("{id}.ck"));
         std::fs::write(&source_path, input.source.as_bytes())?;
         let source_sha256 = format!("{:x}", Sha256::digest(input.source.as_bytes()));
         let created_at = Utc::now().to_rfc3339();
