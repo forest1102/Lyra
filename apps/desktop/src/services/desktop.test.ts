@@ -20,10 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen, emit: mocks.emit }));
 
-import {
-  desktopBridge,
-  selectionPlaybackAction
-} from "./desktop";
+import { desktopBridge } from "./desktop";
 
 const timerState: TimerState = {
   preset: {
@@ -73,19 +70,19 @@ describe("デスクトップIPC", () => {
     expect(unlisten).toHaveBeenCalledOnce();
   });
 
-  test("音響エラーイベントの文字列を購読者へ渡す", async () => {
+  test("ネイティブの停止要求をクライアント音声エンジンへ渡す", async () => {
     const listener = vi.fn();
     mocks.listen.mockImplementation(async (_event, handler) => {
-      handler({ event: "music://error", id: 1, payload: "scsynth stopped" });
+      handler({ event: "audio://stop", id: 1, payload: null });
       return vi.fn();
     });
 
-    await desktopBridge.subscribeMusicError(listener);
+    await desktopBridge.subscribeAudioStop(listener);
 
-    expect(listener).toHaveBeenCalledWith("scsynth stopped");
+    expect(listener).toHaveBeenCalledOnce();
   });
 
-  test("タイマーと音楽の操作を双方向Eventで送る", async () => {
+  test("タイマー操作だけを双方向Eventで送る", async () => {
     let onResult: ((event: { payload: { requestId: string; ok: boolean; data?: unknown } }) => void) | undefined;
     mocks.listen.mockImplementation(async (event, handler) => {
       if (event === "ipc://result") onResult = handler;
@@ -102,17 +99,10 @@ describe("デスクトップIPC", () => {
     onResult?.({ payload: { requestId: timerRequest.requestId, ok: true, data: timerState } });
     await expect(timerPending).resolves.toEqual(timerState);
 
-    const musicPending = desktopBridge.playback("stop");
-    await vi.waitFor(() => expect(mocks.emit).toHaveBeenCalledWith("music://control", expect.objectContaining({ action: "stop" })));
-    const musicRequest = mocks.emit.mock.calls[1][1] as { requestId: string };
-    onResult?.({ payload: { requestId: musicRequest.requestId, ok: true } });
-    await expect(musicPending).resolves.toBeUndefined();
-
     expect(mocks.invoke).not.toHaveBeenCalledWith("timer_dispatch", expect.anything());
-    expect(mocks.invoke).not.toHaveBeenCalledWith("music_playback", expect.anything());
   });
 
-  test("BGM生成と検証の進捗をChannelから購読する", async () => {
+  test("BGM生成の進捗をChannelから購読する", async () => {
     const draft = { id: "draft-1" };
     const onProgress = vi.fn();
     mocks.invoke.mockImplementation(async (_command, args) => {
@@ -134,26 +124,23 @@ describe("デスクトップIPC", () => {
     }));
     expect(onProgress).toHaveBeenCalledWith({ phase: "coding" });
 
-    mocks.invoke.mockImplementation(async (_command, args) => {
-      const channel = (args as { onProgress: { onmessage?: (message: unknown) => void } }).onProgress;
-      channel.onmessage?.({ phase: "validating" });
-      return draft;
-    });
-    await desktopBridge.previewDraft("draft-1", onProgress);
-
-    expect(mocks.invoke).toHaveBeenCalledWith("preview_music_draft", expect.objectContaining({
-      onProgress: mocks.channels[1]
-    }));
-    expect(onProgress).toHaveBeenCalledWith({ phase: "validating" });
-  });
-});
-
-describe("BGM切替", () => {
-  test("無音を選ぶと再生停止を要求する", () => {
-    expect(selectionPlaybackAction(null)).toBe("silence");
   });
 
-  test("保存曲を選ぶとクロスフェード切替を要求する", () => {
-    expect(selectionPlaybackAction("track-1")).toBe("switch");
+  test("進行中のBGM生成をRustへ中止要求できる", async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await desktopBridge.cancelMusicGeneration();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("cancel_music_generation", undefined);
+  });
+
+  test("検証レポートと曲ソースをTauri commandで交換する", async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+    const report = { durationMs: 5000 as const, elapsedAudioSeconds: 5, peak: 0.8, nonSilentMs: 300, nonFiniteSamples: 0, processorErrors: 0 };
+    await desktopBridge.confirmDraftValidation("draft-1", report);
+    await desktopBridge.getTrackSource("track-1");
+
+    expect(mocks.invoke).toHaveBeenCalledWith("confirm_music_draft_validation", { draftId: "draft-1", report });
+    expect(mocks.invoke).toHaveBeenCalledWith("get_music_track_source", { trackId: "track-1" });
   });
 });

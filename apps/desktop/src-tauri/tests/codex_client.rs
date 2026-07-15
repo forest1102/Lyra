@@ -1,7 +1,9 @@
 use lyra_desktop::music::codex_client::{
-    generation_output_schema, GenerationControls, GenerationPrompt, JsonRpcBuilder,
+    generation_output_schema, GenerationControls, GenerationPrompt, JsonRpcBuilder, TURN_TIMEOUT,
 };
 use lyra_desktop::music::source_policy::SourcePolicy;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[test]
 fn thread_start_is_read_only_offline_and_never_requests_approval() {
@@ -11,6 +13,64 @@ fn thread_start_is_read_only_offline_and_never_requests_approval() {
     assert_eq!(request["params"]["approvalPolicy"], "never");
     assert_eq!(request["params"]["sandbox"], "read-only");
     assert!(request["params"].get("sandboxPolicy").is_none());
+    assert!(request["params"]["developerInstructions"]
+        .as_str()
+        .unwrap()
+        .contains("ツールを使用せず"));
+}
+
+#[test]
+fn generation_turn_has_a_bounded_wait() {
+    assert!(TURN_TIMEOUT.as_secs() >= 60);
+    assert!(TURN_TIMEOUT.as_secs() <= 120);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_running_generation_can_be_cancelled_promptly() {
+    use lyra_desktop::music::codex_client::{CodexClient, CodexClientError};
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    let directory = tempfile::tempdir().unwrap();
+    let server = directory.path().join("fake-codex");
+    std::fs::write(
+        &server,
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) echo '{"id":1,"result":{}}' ;;
+    *'"method":"thread/start"'*) echo '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"turn/start"'*) echo '{"id":3,"result":{"turn":{"id":"turn-1"}}}' ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let mut client = CodexClient::start(
+        &server,
+        directory.path().join("generation"),
+        cancellation.clone(),
+    )
+    .unwrap();
+    let prompt = GenerationPrompt::new(GenerationControls {
+        theme: "deep-space".into(),
+        arrangement: "ambient".into(),
+        brightness: "medium".into(),
+        density: "medium".into(),
+        motion: "low".into(),
+    });
+    let started = Instant::now();
+    let generation = std::thread::spawn(move || client.generate(&prompt));
+
+    std::thread::sleep(Duration::from_millis(50));
+    cancellation.store(true, Ordering::Release);
+    let error = generation.join().unwrap().unwrap_err();
+
+    assert!(matches!(error, CodexClientError::Cancelled));
+    assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 #[test]
@@ -24,6 +84,7 @@ fn turn_start_uses_the_current_app_server_sandbox_policy() {
     assert!(request.get("jsonrpc").is_none());
     assert_eq!(request["params"]["sandboxPolicy"]["type"], "readOnly");
     assert_eq!(request["params"]["sandboxPolicy"]["networkAccess"], false);
+    assert_eq!(request["params"]["effort"], "low");
 }
 
 #[test]
@@ -33,6 +94,8 @@ fn output_schema_is_closed_and_versioned() {
     assert_eq!(schema["properties"]["schemaVersion"]["const"], 1);
     assert_eq!(schema["properties"]["bpm"]["minimum"], 40);
     assert_eq!(schema["properties"]["bpm"]["maximum"], 120);
+    assert!(schema["properties"].get("chuckSource").is_some());
+    assert!(schema["properties"].get("supercolliderSource").is_none());
     assert_eq!(schema["required"].as_array().unwrap().len(), 6);
 }
 
@@ -49,8 +112,8 @@ fn generation_prompt_contains_theme_controls_and_code_contract() {
     assert!(text.contains("deep-space"));
     assert!(text.contains("arrangement=ambient"));
     assert!(text.contains("brightness=low"));
-    assert!(text.contains("\\lyra_voice_1"));
-    assert!(text.contains("Pfunc"));
+    assert!(text.contains("__LYRA_SEED__"));
+    assert!(text.contains("FileIO"));
     assert!(text.contains("JSON"));
     for section in [
         "1. 絶対条件",
@@ -58,7 +121,7 @@ fn generation_prompt_contains_theme_controls_and_code_contract() {
         "3. 曲調別レシピ",
         "4. テーマ別レシピ",
         "5. 音響・知覚設計",
-        "6. SuperColliderコード契約",
+        "6. ChucKコード契約",
         "7. 出力前セルフチェック",
     ] {
         assert!(text.contains(section), "missing prompt section: {section}");
@@ -128,38 +191,38 @@ fn generation_prompt_includes_only_the_selected_theme_recipe() {
     for (theme, selected, excluded) in [
         (
             "deep-space",
-            "中高域のSinOsc/LFTri",
+            "中高域のSinOsc/TriOsc",
             [
-                "小音量のPinkNoise",
-                "丸めたPulse/SinOsc",
-                "遅いVarSaw/SinOsc変調",
+                "小音量のNoise",
+                "丸めたPulseOsc/SinOsc",
+                "遅いSawOsc/SinOsc変調",
             ],
         ),
         (
             "rainy-cabin",
-            "小音量のPinkNoise",
+            "小音量のNoise",
             [
-                "中高域のSinOsc/LFTri",
-                "丸めたPulse/SinOsc",
-                "遅いVarSaw/SinOsc変調",
+                "中高域のSinOsc/TriOsc",
+                "丸めたPulseOsc/SinOsc",
+                "遅いSawOsc/SinOsc変調",
             ],
         ),
         (
             "minimal-pulse",
-            "丸めたPulse/SinOsc",
+            "丸めたPulseOsc/SinOsc",
             [
-                "中高域のSinOsc/LFTri",
-                "小音量のPinkNoise",
-                "遅いVarSaw/SinOsc変調",
+                "中高域のSinOsc/TriOsc",
+                "小音量のNoise",
+                "遅いSawOsc/SinOsc変調",
             ],
         ),
         (
             "organic-drift",
-            "遅いVarSaw/SinOsc変調",
+            "遅いSawOsc/SinOsc変調",
             [
-                "中高域のSinOsc/LFTri",
-                "小音量のPinkNoise",
-                "丸めたPulse/SinOsc",
+                "中高域のSinOsc/TriOsc",
+                "小音量のNoise",
+                "丸めたPulseOsc/SinOsc",
             ],
         ),
     ] {
@@ -175,9 +238,9 @@ fn generation_prompt_includes_only_the_selected_theme_recipe() {
 fn generation_prompt_provides_a_source_policy_compliant_structure_example() {
     let text = prompt_text("deep-space", "ambient");
     let source = text
-        .split_once("```supercollider\n")
+        .split_once("```chuck\n")
         .and_then(|(_, rest)| rest.split_once("\n```").map(|(source, _)| source))
-        .expect("prompt must include a SuperCollider structure example");
+        .expect("prompt must include a ChucK structure example");
 
     SourcePolicy::v1().validate(source).unwrap();
 }
@@ -196,7 +259,7 @@ fn repair_prompt_preserves_the_original_controls_and_adds_diagnostics() {
     assert!(repair.contains("arrangement=lofi"));
     assert!(repair.contains("5. 音響・知覚設計"));
     assert!(repair.contains("柔らかいコード反復"));
-    assert!(repair.contains("小音量のPinkNoise"));
+    assert!(repair.contains("小音量のNoise"));
     assert!(!repair.contains("2〜8拍の協和パッド"));
     assert!(repair.contains("forbidden selector: .play"));
     assert!(repair.contains("修正版JSONだけ"));

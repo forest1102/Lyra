@@ -10,13 +10,15 @@ describe("日本語UIラベル", () => {
   });
 
   test("失敗箇所ごとの案内を表示する", () => {
-    expect(generationErrorMessage()).toContain("Codex CLI");
-    expect(previewErrorMessage()).toContain("SuperCollider");
+    expect(generationErrorMessage(new Error("Codex request timed out"))).toContain("Codex request timed out");
+    expect(generationErrorMessage(new Error("Codex request timed out"))).not.toContain("インストール");
+    expect(previewErrorMessage(new Error("A user gesture is required"))).toContain("A user gesture is required");
   });
 
   test("生成段階を2段階で表示する", () => {
     expect(generationProgressLabel("coding")).toContain("1/2");
     expect(generationProgressLabel("audio")).toContain("2/2");
+    expect(generationProgressLabel("ready")).toContain("検証して再生");
     expect(generationProgressLabel("deferred")).toContain("集中終了後");
   });
 });

@@ -1,7 +1,10 @@
 use lyra_desktop::music::codex_client::{GenerationControls, GenerationPrompt, GenerationTurn};
 use lyra_desktop::music::generation::{GenerationBackend, GenerationService};
 
-const VALID_SOURCE: &str = include_str!("../resources/supercollider/fixtures/valid/deep-space.scd");
+const VALID_SOURCE: &str = r#"Math.srandom(__LYRA_SEED__);
+SinOsc oscillator => ADSR envelope => LPF filter => Pan2 pan => Gain master => dac;
+0.12 => master.gain;
+while (true) { envelope.keyOn(); 500::ms => now; }"#;
 
 struct FakeBackend {
     outputs: Vec<String>,
@@ -34,7 +37,7 @@ fn json(source: &str) -> String {
         "description": "A quiet generated focus track.",
         "bpm": 64,
         "tailSeconds": 4,
-        "supercolliderSource": source
+        "chuckSource": source
     })
     .to_string()
 }
@@ -52,16 +55,18 @@ fn controls() -> GenerationControls {
 #[test]
 fn repairs_invalid_codex_output_only_once() {
     let backend = FakeBackend {
-        outputs: vec![json(&format!("{VALID_SOURCE}\n.play")), json(VALID_SOURCE)],
+        outputs: vec![
+            json(&VALID_SOURCE.replace("SinOsc", "UnsafeOsc")),
+            json(VALID_SOURCE),
+        ],
         repairs: 0,
     };
     let mut service = GenerationService::new(backend);
     let draft = service.generate(controls(), false).unwrap();
 
     assert_eq!(service.backend().repairs, 1);
-    assert!(draft.supercollider_source.contains("_voice_1"));
-    assert!(!draft.supercollider_source.contains("\\lyra_voice_1"));
-    assert_eq!(draft.audio_validation, "required");
+    assert_eq!(draft.chuck_source, VALID_SOURCE);
+    assert_eq!(draft.audio_validation, "pending");
     assert_eq!(draft.arrangement, "ambient");
 }
 

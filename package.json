@@ -15,11 +15,7 @@
     "setup": "bun install --frozen-lockfile",
     "app:dev": "bunx turbo run dev --filter=@lyra/desktop",
     "app:build": "bunx turbo run build:desktop --filter=@lyra/desktop",
-    "sc:build": "bunx turbo run build:supercollider --filter=@lyra/native-tooling",
-    "sc:check": "bunx turbo run check:supercollider --filter=@lyra/native-tooling",
     "mcp:build": "bunx turbo run build:mcp --filter=@lyra/native-tooling",
-    "runtime:check": "bunx turbo run check:runtime --filter=@lyra/native-tooling",
-    "generation:check": "bunx turbo run check:generation --filter=@lyra/native-tooling",
     "test:e2e": "bun run --cwd apps/desktop test:e2e",
     "verify:core": "bunx turbo run test typecheck build check fmt:check",
     "verify": "bun run verify:core && bun run test:e2e"

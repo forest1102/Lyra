@@ -1,12 +1,11 @@
 import type { MusicDraft, MusicGenerationProgress, MusicGenerationRequest } from "../domain";
 
-export type MusicGenerationPhase = "idle" | "coding" | "audio" | "deferred" | "completed" | "failed";
-export type MusicGenerationFailureStage = "coding" | "audio";
+export type MusicGenerationPhase = "idle" | "coding" | "ready" | "audio" | "deferred" | "completed" | "failed";
+export type MusicGenerationFailureStage = "coding";
 
 interface MusicGenerationPipelineInput {
   request: MusicGenerationRequest;
   generate(request: MusicGenerationRequest, onProgress: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
-  preview(draft: MusicDraft, onProgress: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
   onPhase(phase: MusicGenerationPhase): void;
 }
 
@@ -14,7 +13,7 @@ export class MusicGenerationPipelineError extends Error {
   readonly cause: unknown;
 
   constructor(readonly stage: MusicGenerationFailureStage, cause: unknown) {
-    super(stage === "coding" ? "music coding failed" : "music audio generation failed");
+    super("music coding failed");
     this.name = "MusicGenerationPipelineError";
     this.cause = cause;
   }
@@ -39,11 +38,6 @@ export async function runMusicGeneration(input: MusicGenerationPipelineInput): P
     input.onPhase("deferred");
     return draft;
   }
-  try {
-    const validated = await input.preview(draft, onProgress);
-    input.onPhase("completed");
-    return validated;
-  } catch (error) {
-    throw new MusicGenerationPipelineError("audio", error);
-  }
+  input.onPhase("ready");
+  return draft;
 }

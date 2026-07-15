@@ -4,18 +4,23 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-const TURN_TIMEOUT: Duration = Duration::from_secs(120);
+pub const TURN_TIMEOUT: Duration = Duration::from_secs(120);
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+const GENERATION_INSTRUCTIONS: &str = "あなたはLyraのChucKコード生成器です。ユーザー入力に含まれる仕様とJSON Schemaだけに従い、ツールを使用せず、ファイルを読み書きせず、説明や途中経過を出さず、最終回答としてJSONだけを返してください。";
 
 pub fn generation_output_schema() -> Value {
     json!({
         "type": "object",
         "additionalProperties": false,
         "required": [
-            "schemaVersion", "title", "description", "bpm", "tailSeconds", "supercolliderSource"
+            "schemaVersion", "title", "description", "bpm", "tailSeconds", "chuckSource"
         ],
         "properties": {
             "schemaVersion": { "type": "integer", "const": 1 },
@@ -23,7 +28,7 @@ pub fn generation_output_schema() -> Value {
             "description": { "type": "string", "minLength": 1, "maxLength": 240 },
             "bpm": { "type": "number", "minimum": 40, "maximum": 120 },
             "tailSeconds": { "type": "number", "minimum": 0, "maximum": 8 },
-            "supercolliderSource": { "type": "string", "maxLength": 49152 }
+            "chuckSource": { "type": "string", "maxLength": 49152 }
         }
     })
 }
@@ -49,7 +54,8 @@ impl JsonRpcBuilder {
                 "cwd": cwd.as_ref(),
                 "approvalPolicy": "never",
                 "sandbox": "read-only",
-                "ephemeral": true
+                "ephemeral": true,
+                "developerInstructions": GENERATION_INSTRUCTIONS
             }
         })
     }
@@ -63,6 +69,7 @@ impl JsonRpcBuilder {
                 "cwd": cwd,
                 "approvalPolicy": "never",
                 "sandboxPolicy": { "type": "readOnly", "networkAccess": false },
+                "effort": "low",
                 "input": [{ "type": "text", "text": prompt }],
                 "outputSchema": generation_output_schema()
             }
@@ -121,6 +128,8 @@ pub enum CodexClientError {
     Disconnected,
     #[error("Codex request timed out")]
     Timeout,
+    #[error("Codex request was cancelled")]
+    Cancelled,
     #[error("Codex request failed: {0}")]
     Protocol(String),
     #[error("Codex turn completed without a JSON response")]
@@ -134,12 +143,14 @@ pub struct CodexClient {
     pending: VecDeque<Value>,
     next_id: i64,
     generation_cwd: PathBuf,
+    cancellation: Arc<AtomicBool>,
 }
 
 impl CodexClient {
     pub fn start(
         codex_binary: impl AsRef<Path>,
         generation_cwd: PathBuf,
+        cancellation: Arc<AtomicBool>,
     ) -> Result<Self, CodexClientError> {
         std::fs::create_dir_all(&generation_cwd)?;
         let mut process = Command::new(codex_binary.as_ref())
@@ -173,6 +184,7 @@ impl CodexClient {
             pending: VecDeque::new(),
             next_id: 1,
             generation_cwd,
+            cancellation,
         };
         let id = client.take_id();
         client.request(JsonRpcBuilder::initialize(id), id, Duration::from_secs(10))?;
@@ -216,11 +228,18 @@ impl CodexClient {
         let deadline = Instant::now() + TURN_TIMEOUT;
         let mut output = None;
         loop {
+            if self.cancellation.load(Ordering::Acquire) {
+                return Err(CodexClientError::Cancelled);
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(CodexClientError::Timeout);
             }
-            let message = self.next_message(remaining)?;
+            let message = match self.next_message(remaining.min(CANCELLATION_POLL_INTERVAL)) {
+                Ok(message) => message,
+                Err(CodexClientError::Timeout) => continue,
+                Err(error) => return Err(error),
+            };
             match message.get("method").and_then(Value::as_str) {
                 Some("item/completed") => {
                     if message.pointer("/params/item/type").and_then(Value::as_str)

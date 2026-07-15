@@ -1,7 +1,6 @@
 use crate::music::codex_client::{
     CodexClient, GenerationControls, GenerationPrompt, GenerationTurn,
 };
-use crate::music::source_policy::SourcePolicy;
 use crate::music::validator::{AudioValidation, StaticValidator, ValidatedGeneration};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -47,7 +46,7 @@ pub struct GeneratedMusicDraft {
     pub motion: String,
     pub bpm: f64,
     pub tail_seconds: f64,
-    pub supercollider_source: String,
+    pub chuck_source: String,
     pub source_sha256: String,
     pub canonical_seed: i64,
     pub audio_validation: String,
@@ -64,7 +63,6 @@ pub enum GenerationError {
 pub struct GenerationService<B> {
     backend: B,
     validator: StaticValidator,
-    source_policy: SourcePolicy,
 }
 
 impl<B: GenerationBackend> GenerationService<B> {
@@ -72,7 +70,6 @@ impl<B: GenerationBackend> GenerationService<B> {
         Self {
             backend,
             validator: StaticValidator::new(),
-            source_policy: SourcePolicy::v1(),
         }
     }
 
@@ -102,12 +99,8 @@ impl<B: GenerationBackend> GenerationService<B> {
             })?;
 
         let id = Uuid::new_v4();
-        let namespace = format!("track_{}", id.simple());
-        let supercollider_source = self
-            .source_policy
-            .namespace_synth_defs(&validated.result.supercollider_source, &namespace)
-            .map_err(|error| GenerationError::Validation(error.to_string()))?;
-        let source_sha256 = format!("{:x}", Sha256::digest(supercollider_source.as_bytes()));
+        let chuck_source = validated.result.chuck_source;
+        let source_sha256 = format!("{:x}", Sha256::digest(chuck_source.as_bytes()));
         let canonical_seed = (id.as_u128() as u64 & i64::MAX as u64) as i64;
         Ok(GeneratedMusicDraft {
             id: id.to_string(),
@@ -121,11 +114,11 @@ impl<B: GenerationBackend> GenerationService<B> {
             motion: controls.motion,
             bpm: validated.result.bpm,
             tail_seconds: validated.result.tail_seconds,
-            supercollider_source,
+            chuck_source,
             source_sha256,
             canonical_seed,
             audio_validation: match validated.audio_validation {
-                AudioValidation::Required => "required",
+                AudioValidation::Required => "pending",
                 AudioValidation::DeferredUntilFocusEnds => "deferred_until_focus_ends",
             }
             .into(),

@@ -18,8 +18,8 @@ function harness(timeoutMs = 10_000) {
 describe("Event request broker", () => {
   test("requestIdが一致する成功応答でPromiseを解決する", async () => {
     const target = harness();
-    const pending = target.broker.request<{ status: string }>("music://control", { action: "stop" });
-    await vi.waitFor(() => expect(target.emit).toHaveBeenCalledWith("music://control", {
+    const pending = target.broker.request<{ status: string }>("timer://control", { action: "stop" });
+    await vi.waitFor(() => expect(target.emit).toHaveBeenCalledWith("timer://control", {
       requestId: "request-1",
       action: "stop"
     }));
@@ -42,8 +42,8 @@ describe("Event request broker", () => {
   test("応答がなければtimeoutし、disposeでlistenerを解除する", async () => {
     vi.useFakeTimers();
     const target = harness(50);
-    const pending = target.broker.request("music://control", { action: "play" });
-    const rejection = expect(pending).rejects.toThrow("music://control timed out");
+    const pending = target.broker.request("timer://control", { action: "play" });
+    const rejection = expect(pending).rejects.toThrow("timer://control timed out");
     await vi.advanceTimersByTimeAsync(50);
 
     await rejection;

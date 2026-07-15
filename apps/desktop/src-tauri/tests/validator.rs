@@ -1,6 +1,14 @@
 use lyra_desktop::music::validator::{AudioValidation, StaticValidator, ValidationError};
 
-const VALID_SOURCE: &str = include_str!("../resources/supercollider/fixtures/valid/deep-space.scd");
+const VALID_SOURCE: &str = r#"
+Math.srandom(__LYRA_SEED__);
+SinOsc oscillator => ADSR envelope => LPF filter => Pan2 pan => Gain master => dac;
+0.12 => master.gain;
+while (true) {
+    envelope.keyOn();
+    500::ms => now;
+}
+"#;
 
 fn valid_json() -> String {
     serde_json::json!({
@@ -9,16 +17,16 @@ fn valid_json() -> String {
         "description": "A slow spacious focus loop.",
         "bpm": 64,
         "tailSeconds": 4,
-        "supercolliderSource": VALID_SOURCE
+        "chuckSource": VALID_SOURCE
     })
     .to_string()
 }
 
 #[test]
-fn validates_schema_and_source_policy_before_spawning_sclang() {
+fn validates_the_chuck_schema_and_source_policy() {
     let validated = StaticValidator::new().validate_json(&valid_json()).unwrap();
     assert_eq!(validated.result.title, "Nebula Drift");
-    assert_eq!(validated.source.synth_def_names, vec!["lyra_voice_1"]);
+    assert_eq!(validated.source.voice_count, 1);
     assert_eq!(validated.audio_validation, AudioValidation::Required);
 }
 
@@ -41,7 +49,7 @@ fn rejects_invalid_metadata_at_stage_one() {
         "description": "x",
         "bpm": 180,
         "tailSeconds": 9,
-        "supercolliderSource": VALID_SOURCE
+        "chuckSource": VALID_SOURCE
     })
     .to_string();
     let error = StaticValidator::new().validate_json(&invalid).unwrap_err();
@@ -49,23 +57,18 @@ fn rejects_invalid_metadata_at_stage_one() {
 }
 
 #[test]
-fn all_four_theme_fixtures_pass_static_policy() {
-    let validator = StaticValidator::new();
-    for source in [
-        include_str!("../resources/supercollider/fixtures/valid/deep-space.scd"),
-        include_str!("../resources/supercollider/fixtures/valid/rainy-cabin.scd"),
-        include_str!("../resources/supercollider/fixtures/valid/minimal-pulse.scd"),
-        include_str!("../resources/supercollider/fixtures/valid/organic-drift.scd"),
-    ] {
-        let json = serde_json::json!({
-            "schemaVersion": 1,
-            "title": "Fixture",
-            "description": "Static validation fixture.",
-            "bpm": 60,
-            "tailSeconds": 3,
-            "supercolliderSource": source
-        })
-        .to_string();
-        validator.validate_json(&json).unwrap();
-    }
+fn rejects_the_legacy_supercollider_field() {
+    let invalid = serde_json::json!({
+        "schemaVersion": 1,
+        "title": "Legacy",
+        "description": "Old source format.",
+        "bpm": 60,
+        "tailSeconds": 3,
+        "supercolliderSource": "SinOsc.ar(440)"
+    })
+    .to_string();
+    assert!(matches!(
+        StaticValidator::new().validate_json(&invalid),
+        Err(ValidationError::Schema(_))
+    ));
 }

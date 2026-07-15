@@ -76,4 +76,57 @@ describe("モックIPC", () => {
     });
     assert.match(String(call?.preset?.id), /^[0-9a-f-]{36}$/i);
   });
+
+  it("生成後の明示クリックでWebChucKを無音検証して再生状態へ遷移する", async () => {
+    const draft = {
+      id: "e2e-audio-draft",
+      parentTrackId: null,
+      title: "E2E WebChucK",
+      description: "実WKWebViewの音声起動を検証する",
+      theme: "deep-space",
+      arrangement: "ambient",
+      brightness: "medium",
+      density: "medium",
+      motion: "low",
+      bpm: 64,
+      tailSeconds: 0,
+      chuckSource: "Math.srandom(__LYRA_SEED__); SinOsc oscillator => Gain master => dac; 440 => oscillator.freq; 0.1 => master.gain; while (true) { 500::ms => now; }",
+      sourceSha256: "e2e",
+      canonicalSeed: 42,
+      audioValidation: "pending"
+    };
+    const generateMusic = await browser.tauri.mock("generate_music");
+    const confirmValidation = await browser.tauri.mock("confirm_music_draft_validation");
+    await generateMusic.mockResolvedValue(draft);
+    await confirmValidation.mockResolvedValue({ ...draft, audioValidation: "passed" });
+
+    await openScreen("BGM制作");
+    await $("button=生成する").click();
+    await expect($("h2=E2E WebChucK")).toBeDisplayed();
+    await $("button=検証して再生").click();
+
+    await expect($("button=■ 停止")).toBeDisplayed();
+  });
+
+  it("ライブコーディング中の生成を画面から中止できる", async () => {
+    const generateMusic = await browser.tauri.mock("generate_music");
+    const cancelGeneration = await browser.tauri.mock("cancel_music_generation");
+    await generateMusic.mockImplementation((args?: unknown) => {
+      const input = args as { onProgress?: { onmessage?: (progress: unknown) => void } } | undefined;
+      input?.onProgress?.onmessage?.({ phase: "coding" });
+      return new Promise<void>(() => undefined);
+    });
+    await cancelGeneration.mockResolvedValue(null);
+
+    await openScreen("BGM制作");
+    await $("button=生成する").click();
+    await expect($("button=生成を中止")).toBeDisplayed();
+    await $("button=生成を中止").click();
+    await expect($("button=生成する")).toBeDisplayed();
+    await browser.waitUntil(async () => {
+      await cancelGeneration.update();
+      return cancelGeneration.mock.calls.length === 1;
+    }, { timeout: 5_000, timeoutMsg: "cancel_music_generation was not called" });
+  });
+
 });

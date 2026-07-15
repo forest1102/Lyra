@@ -21,13 +21,20 @@ export const arrangementLabel = (arrangement: MusicArrangement): string => arran
 export const intensityLabel = (intensity: MusicIntensity): string => intensities[intensity];
 export const phaseLabel = (phase: TimerPhase): string => phases[phase];
 export const presetLabel = (preset: TimerPreset): string => builtInPresets[preset.id] ?? preset.name;
-export const generationErrorMessage = (): string => "BGMの生成に失敗しました。Codex CLIのインストールと認証状態を確認してください。";
-export const previewErrorMessage = (): string => "音声の検証・再生に失敗しました。SuperColliderの実行環境を確認してください。";
+export const generationErrorMessage = (reason?: unknown): string => {
+  const detail = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "不明なエラー";
+  return `BGMの生成に失敗しました: ${detail}`;
+};
+export const previewErrorMessage = (reason?: unknown): string => {
+  const detail = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "不明なエラー";
+  return `音声の検証・再生に失敗しました: ${detail}`;
+};
 
 export function generationProgressLabel(phase: MusicGenerationPhase): string {
   switch (phase) {
     case "idle": return "";
-    case "coding": return "1/2 SuperColliderをコーディング中…";
+    case "coding": return "1/2 ChucKをコーディング中…";
+    case "ready": return "コード生成完了。検証して再生を押してください。";
     case "audio": return "2/2 音声を生成・検証中…";
     case "deferred": return "コード生成完了。音声生成は集中終了後に再開できます。";
     case "completed": return "生成と音声検証が完了しました。試聴を再生しています。";

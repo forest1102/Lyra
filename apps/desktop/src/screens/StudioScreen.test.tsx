@@ -19,6 +19,7 @@ const context = vi.hoisted(() => ({
   },
   musicPlayback: { status: "stopped", trackId: null } as { status: string; trackId: string | null },
   generateTrack: vi.fn(),
+  cancelMusicGeneration: vi.fn().mockResolvedValue(undefined),
   previewDraft: vi.fn().mockResolvedValue(undefined),
   stopMusic: vi.fn().mockResolvedValue(undefined),
   saveDraft: vi.fn(),
@@ -58,4 +59,18 @@ test("選択した曲調をBGM生成要求に含める", async () => {
     expect.objectContaining({ arrangement: "lofi" }),
     expect.any(Function)
   ));
+});
+
+test("ライブコーディングを画面から中止できる", async () => {
+  const user = userEvent.setup();
+  context.generateTrack.mockImplementation((_request, onProgress) => {
+    onProgress?.({ phase: "coding" });
+    return new Promise(() => undefined);
+  });
+  render(<StudioScreen />);
+
+  await user.click(screen.getByRole("button", { name: "生成する" }));
+  await user.click(await screen.findByRole("button", { name: "生成を中止" }));
+
+  expect(context.cancelMusicGeneration).toHaveBeenCalledOnce();
 });

@@ -17,7 +17,7 @@ const context = vi.hoisted(() => ({
     favorite: false,
     rating: null,
     parentTrackId: null,
-    sourcePath: "/tmp/track.scd",
+    sourcePath: "/tmp/track.ck",
     sourceSha256: "abc"
   }],
   musicPlayback: { status: "stopped", trackId: null } as { status: string; trackId: string | null },
@@ -26,6 +26,7 @@ const context = vi.hoisted(() => ({
   rateTrack: vi.fn(),
   toggleFavorite: vi.fn(),
   saveVariation: vi.fn()
+  ,loadTrackSource: vi.fn().mockResolvedValue("Math.srandom(__LYRA_SEED__);")
 }));
 
 vi.mock("../state/LyraContext", () => ({ useLyra: () => context }));
@@ -43,4 +44,12 @@ test("同じボタンが再生中の曲だけ停止に切り替わる", async ()
   view.rerender(<LibraryScreen />);
   await user.click(screen.getByRole("button", { name: "■ 停止" }));
   expect(context.stopMusic).toHaveBeenCalledOnce();
+});
+
+test("検証済みChucKソースを読み取り専用で表示する", async () => {
+  const user = userEvent.setup();
+  render(<LibraryScreen />);
+  await user.click(screen.getByRole("button", { name: "ChucKコード" }));
+  expect(await screen.findByText(/Math\.srandom/)).toBeInTheDocument();
+  expect(context.loadTrackSource).toHaveBeenCalledWith("track-1");
 });

@@ -1,11 +1,12 @@
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  DraftValidationReport,
   MusicDraft,
   MusicGenerationProgress,
   MusicGenerationRequest,
-  MusicPlaybackState,
   MusicTrack,
+  MusicTrackSource,
   Task,
   TaskList,
   TimerEvent,
@@ -13,10 +14,6 @@ import type {
   TimerState
 } from "../domain";
 import { EventRequestBroker, type IpcResult } from "./eventRequest";
-
-export function selectionPlaybackAction(trackId: string | null): "switch" | "silence" {
-  return trackId === null ? "silence" : "switch";
-}
 
 function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (import.meta.env.VITE_E2E === "1") {
@@ -47,17 +44,17 @@ export interface DesktopBridge {
   getTimerState(): Promise<TimerState>;
   listTracks(): Promise<MusicTrack[]>;
   generateTrack(request: MusicGenerationRequest, onProgress?: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
-  previewDraft(draftId: string, onProgress?: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
+  cancelMusicGeneration(): Promise<void>;
+  confirmDraftValidation(draftId: string, report: DraftValidationReport): Promise<MusicDraft>;
   saveDraft(draftId: string): Promise<MusicTrack>;
+  getTrackSource(trackId: string): Promise<MusicTrackSource>;
   timerDispatch(event: TimerEvent, presetId: string): Promise<TimerState>;
-  playback(action: string, trackId?: string | null, seed?: number): Promise<void>;
   startFocus(taskIds: string[], presetId: string, musicTrackId: string | null): Promise<{ id: string }>;
   finishFocus(sessionId: string, elapsedSeconds: number, completedTaskIds: string[]): Promise<void>;
   rateTrack(id: string, rating: "good" | "poor" | null, favorite: boolean): Promise<void>;
   saveVariation(trackId: string, seed: number): Promise<MusicTrack>;
   subscribeTimerState(listener: (state: TimerState) => void): Promise<UnlistenFn>;
-  subscribeMusicError(listener: (message: string) => void): Promise<UnlistenFn>;
-  subscribeMusicState(listener: (state: MusicPlaybackState) => void): Promise<UnlistenFn>;
+  subscribeAudioStop(listener: () => void): Promise<UnlistenFn>;
 }
 
 export const desktopBridge: DesktopBridge = {
@@ -74,19 +71,15 @@ export const desktopBridge: DesktopBridge = {
     progress.onmessage = onProgress ?? (() => undefined);
     return invoke<MusicDraft>("generate_music", { request, onProgress: progress });
   },
-  previewDraft: (draftId, onProgress) => {
-    const progress = new Channel<MusicGenerationProgress>();
-    progress.onmessage = onProgress ?? (() => undefined);
-    return invoke<MusicDraft>("preview_music_draft", { draftId, onProgress: progress });
-  },
+  cancelMusicGeneration: () => invoke<void>("cancel_music_generation"),
+  confirmDraftValidation: (draftId, report) => invoke<MusicDraft>("confirm_music_draft_validation", { draftId, report }),
   saveDraft: (draftId) => invoke<MusicTrack>("save_music_draft", { draftId }),
+  getTrackSource: (trackId) => invoke<MusicTrackSource>("get_music_track_source", { trackId }),
   timerDispatch: (event, presetId) => eventRequests.request<TimerState>("timer://control", { event, presetId }),
-  playback: (action, trackId, seed) => eventRequests.request<void>("music://control", { action, trackId, seed }),
   startFocus: (taskIds, presetId, musicTrackId) => invoke<{ id: string }>("start_focus", { taskIds, presetId, musicTrackId }),
   finishFocus: (sessionId, elapsedSeconds, completedTaskIds) => invoke<void>("finish_focus", { sessionId, elapsedSeconds, completedTaskIds }),
   rateTrack: (id, rating, favorite) => invoke<void>("rate_music_track", { id, rating, favorite }),
   saveVariation: (trackId, seed) => invoke<MusicTrack>("save_variation", { trackId, seed }),
   subscribeTimerState: (listener) => listen<TimerState>("timer://state", (event) => listener(event.payload)),
-  subscribeMusicError: (listener) => listen<string>("music://error", (event) => listener(event.payload)),
-  subscribeMusicState: (listener) => listen<MusicPlaybackState>("music://state", (event) => listener(event.payload))
+  subscribeAudioStop: (listener) => listen("audio://stop", () => listener())
 };
