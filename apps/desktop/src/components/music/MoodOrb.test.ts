@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createMusicRecipe, normalizeMusicRecipe } from "../../services/moodCatalog";
@@ -90,5 +90,37 @@ describe("createOrbModel", () => {
 
     expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(context.fillText).toHaveBeenCalledWith("雨の窓辺", expect.any(Number), expect.any(Number));
+  });
+
+  test("keeps the ready settle active for 600ms across rerenders using RAF timestamps", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    });
+    const callbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const context = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
+    const recipe = createMusicRecipe(["scene-rainy-window"]);
+    const view = render(createElement(MoodOrb, { recipe, phase: "repairing" }));
+
+    view.rerender(createElement(MoodOrb, { recipe, phase: "ready" }));
+    act(() => callbacks.at(-1)!(10_000));
+    const firstX = vi.mocked(context.fillText).mock.calls.at(-1)![1];
+
+    view.rerender(createElement(MoodOrb, { recipe, phase: "ready", editingDisabled: true }));
+    act(() => callbacks.at(-1)!(10_300));
+    const middleX = vi.mocked(context.fillText).mock.calls.at(-1)![1];
+    act(() => callbacks.at(-1)!(10_600));
+    const settledX = vi.mocked(context.fillText).mock.calls.at(-1)![1];
+
+    expect(firstX).toBeLessThan(215);
+    expect(middleX).toBeGreaterThan(225);
+    expect(middleX).toBeLessThan(240);
+    expect(settledX).toBeGreaterThan(255);
   });
 });

@@ -188,14 +188,25 @@ export function MoodOrb({
   onWeightChange?: (moodId: string, weight: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const previousPhase = useRef<MusicGenerationPhase>(phase);
+  const transitionSession = useRef({
+    phase,
+    displayPhase: phase,
+    settling: false,
+    startedAt: null as number | null,
+    runId: 0,
+  });
+  if (transitionSession.current.phase !== phase) {
+    const transition = createOrbTransition(phase, transitionSession.current.phase);
+    transitionSession.current = {
+      phase,
+      ...transition,
+      startedAt: null,
+      runId: transitionSession.current.runId + 1,
+    };
+  }
   const recipeSignature = recipe?.moods.map(({ moodId, weight }) => `${moodId}:${weight}`).join("|") ?? "fallback";
-  const { settling, displayPhase } = createOrbTransition(phase, previousPhase.current);
+  const { settling, displayPhase, runId } = transitionSession.current;
   const model = useMemo(() => createOrbModel(recipe, displayPhase), [displayPhase, recipeSignature]);
-
-  useEffect(() => {
-    previousPhase.current = phase;
-  }, [phase]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -209,11 +220,11 @@ export function MoodOrb({
     canvas.height = size * scale;
     context.scale(scale, scale);
     let frame = 0;
-    let settleStartedAt: number | null = null;
 
     const render = (elapsed: number) => {
-      if (settling && settleStartedAt === null) settleStartedAt = elapsed;
-      const settleElapsed = settling ? elapsed - (settleStartedAt ?? elapsed) : 0;
+      if (transitionSession.current.runId !== runId) return;
+      if (settling && transitionSession.current.startedAt === null) transitionSession.current.startedAt = elapsed;
+      const settleElapsed = settling ? elapsed - (transitionSession.current.startedAt ?? elapsed) : 0;
       const activity = settling ? Math.max(0, 1 - settleElapsed / SETTLE_DURATION_MS) : 1;
       drawOrb(context, size, model, elapsed, false, activity);
       frame = window.requestAnimationFrame(render);
@@ -221,11 +232,11 @@ export function MoodOrb({
     const renderForPreference = () => {
       window.cancelAnimationFrame(frame);
       frame = 0;
-      settleStartedAt = null;
       if (media.matches) {
         drawOrb(context, size, model, 0, true);
       } else {
-        render(0);
+        drawOrb(context, size, model, 0, false, 1);
+        frame = window.requestAnimationFrame(render);
       }
     };
     renderForPreference();
@@ -234,7 +245,7 @@ export function MoodOrb({
       window.cancelAnimationFrame(frame);
       media.removeEventListener("change", renderForPreference);
     };
-  }, [model, settling]);
+  }, [model, runId, settling]);
 
   return (
     <figure className="mood-orb" aria-label="選択したムードの融合">
