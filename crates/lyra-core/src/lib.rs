@@ -1679,9 +1679,11 @@ impl Database {
 
     pub fn get_app_settings(&self) -> Result<AppSettingsV2> {
         if let Some(value) = self.get_setting("app.settings.v2")? {
-            return serde_json::from_str(&value).map_err(|error| {
+            let settings = serde_json::from_str(&value).map_err(|error| {
                 LyraError::InvalidInput(format!("stored app settings are invalid: {error}"))
-            });
+            })?;
+            self.validate_app_settings(&settings)?;
+            return Ok(settings);
         }
         let settings = if let Some(value) = self.get_setting("app.settings.v1")? {
             let legacy: LegacyAppSettingsV1 = serde_json::from_str(&value).map_err(|error| {

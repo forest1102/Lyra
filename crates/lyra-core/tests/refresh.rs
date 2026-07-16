@@ -371,6 +371,28 @@ fn settings_accept_master_volume_through_two() {
 }
 
 #[test]
+fn settings_reject_invalid_stored_v2_values() {
+    let rejected = [
+        AppSettingsV2 {
+            version: 1,
+            ..AppSettingsV2::default()
+        },
+        AppSettingsV2 {
+            master_volume: 2.01,
+            ..AppSettingsV2::default()
+        },
+    ]
+    .map(|invalid| {
+        let db = Database::open_in_memory().unwrap();
+        db.set_setting("app.settings.v2", &serde_json::to_string(&invalid).unwrap())
+            .unwrap();
+        db.get_app_settings().is_err()
+    });
+
+    assert_eq!(rejected, [true, true]);
+}
+
+#[test]
 fn projects_tags_and_one_level_subtasks_are_validated() {
     let db = Database::open_in_memory().unwrap();
     db.save_project(Project {
