@@ -129,7 +129,7 @@ describe("モックIPC", () => {
     const cancelGeneration = await browser.tauri.mock("cancel_music_generation");
     await generateMusic.mockImplementation((args?: unknown) => {
       const input = args as { onProgress?: { onmessage?: (progress: unknown) => void } } | undefined;
-      input?.onProgress?.onmessage?.({ phase: "coding" });
+      input?.onProgress?.onmessage?.({ phase: "composing" });
       return new Promise<void>(() => undefined);
     });
     await cancelGeneration.mockResolvedValue(null);
