@@ -6,7 +6,7 @@ const WEBCHUCK_ASSET_ROOT = typeof __WEBCHUCK_ASSET_ROOT__ === "string"
   ? __WEBCHUCK_ASSET_ROOT__
   : "/webchuck/";
 const SEED_CALL = "Math.srandom(__LYRA_SEED__);";
-const CROSSFADE_SECONDS = 2;
+const DEFAULT_CROSSFADE_SECONDS = 2;
 
 export interface AudioDeck {
   start(source: string): Promise<void>;
@@ -20,6 +20,7 @@ export interface AudioHost {
   prepareForUserGesture(): void;
   suspend(): Promise<void>;
   resume(): Promise<void>;
+  setVolume(value: number): void;
 }
 
 interface PlayRequest {
@@ -59,6 +60,7 @@ export class AudioEngine {
   private processorRecovery: Promise<void> = Promise.resolve();
   private operationId = 0;
   private pending = new Set<AudioDeck>();
+  private crossfadeSeconds = DEFAULT_CROSSFADE_SECONDS;
 
   constructor(private readonly host: AudioHost = new WebChuckAudioHost()) {}
 
@@ -76,6 +78,19 @@ export class AudioEngine {
 
   validateSource(source: string, seed: number): Promise<DraftValidationReport> {
     return this.host.validateSource(source, seed);
+  }
+
+  setVolume(value: number): void {
+    const normalized = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+    this.host.setVolume(normalized);
+  }
+
+  setCrossfadeSeconds(value: number): void {
+    this.crossfadeSeconds = Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : DEFAULT_CROSSFADE_SECONDS;
+  }
+
+  getCrossfadeSeconds(): number {
+    return this.crossfadeSeconds;
   }
 
   async play(request: PlayRequest): Promise<void> {
@@ -142,10 +157,11 @@ export class AudioEngine {
     const previous = this.active;
     this.active = deck;
     this.currentRequest = request;
-    deck.fadeTo(1, CROSSFADE_SECONDS);
+    const crossfadeSeconds = this.crossfadeSeconds;
+    deck.fadeTo(1, crossfadeSeconds);
     if (previous) {
-      previous.fadeTo(0, CROSSFADE_SECONDS);
-      globalThis.setTimeout(() => { void previous.destroy(); }, CROSSFADE_SECONDS * 1000);
+      previous.fadeTo(0, crossfadeSeconds);
+      globalThis.setTimeout(() => { void previous.destroy(); }, crossfadeSeconds * 1000);
     }
     await this.host.resume();
     this.publish({ status: "playing", trackId: request.trackId, disabled: false });
@@ -202,6 +218,7 @@ export class WebChuckAudioHost implements AudioHost {
   private context: AudioContext | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private output: GainNode | null = null;
+  private volume = 1;
 
   async createDeck(onProcessorError: () => void): Promise<AudioDeck> {
     this.ensureGraph();
@@ -241,6 +258,11 @@ export class WebChuckAudioHost implements AudioHost {
     if (this.context!.state === "suspended") await this.context!.resume();
   }
 
+  setVolume(value: number): void {
+    this.volume = value;
+    if (this.output) this.output.gain.value = import.meta.env.VITE_E2E === "1" ? 0 : value;
+  }
+
   prepareForUserGesture(): void {
     this.ensureGraph();
     void this.context!.resume().catch(() => undefined);
@@ -256,6 +278,7 @@ export class WebChuckAudioHost implements AudioHost {
     this.limiter.attack.value = 0.003;
     this.limiter.release.value = 0.25;
     this.output = connectSystemOutput(this.context, this.limiter, import.meta.env.VITE_E2E === "1");
+    this.setVolume(this.volume);
   }
 }
 

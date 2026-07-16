@@ -143,4 +143,85 @@ describe("デスクトップIPC", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("confirm_music_draft_validation", { draftId: "draft-1", report });
     expect(mocks.invoke).toHaveBeenCalledWith("get_music_track_source", { trackId: "track-1" });
   });
+
+  test("拡張タスクとプロジェクト・タグをcamelCase契約で交換する", async () => {
+    mocks.invoke.mockResolvedValue({ id: "task-1" });
+    const input = {
+      title: "設計を整理する",
+      status: "active" as const,
+      priority: "high" as const,
+      estimatedPomodoros: 2,
+      projectId: "project-1",
+      parentId: null,
+      notes: "境界を確認",
+      plannedDate: "2026-07-15",
+      dueDate: "2026-07-16",
+      recurrence: null,
+      tagIds: ["tag-1"],
+    };
+
+    await desktopBridge.addTaskV2(input);
+    await desktopBridge.updateTask("task-1", { priority: "medium", notes: "更新" });
+    await desktopBridge.reorderTasks(["task-1"], "active");
+    await desktopBridge.listProjects();
+    await desktopBridge.listTags();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("add_task_v2", { input });
+    expect(mocks.invoke).toHaveBeenCalledWith("update_task", { id: "task-1", input: { priority: "medium", notes: "更新" } });
+    expect(mocks.invoke).toHaveBeenCalledWith("reorder_tasks", { ids: ["task-1"], status: "active" });
+    expect(mocks.invoke).toHaveBeenCalledWith("list_projects", undefined);
+    expect(mocks.invoke).toHaveBeenCalledWith("list_tags", undefined);
+  });
+
+  test("ライブラリ検索・改名・一括削除をRustコマンドへ渡す", async () => {
+    mocks.invoke.mockResolvedValue([]);
+    const query = { query: "雨", favorite: true, structureFamily: "ambient", sort: "title_asc" as const };
+
+    await desktopBridge.listTracks(query);
+    await desktopBridge.renameTrack("track-1", " 雨の窓辺 ");
+    await desktopBridge.deleteTracks(["track-1", "track-2"]);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("list_music_tracks", { query });
+    expect(mocks.invoke).toHaveBeenCalledWith("rename_music_track", { id: "track-1", title: " 雨の窓辺 " });
+    expect(mocks.invoke).toHaveBeenCalledWith("delete_music_tracks", { ids: ["track-1", "track-2"] });
+  });
+
+  test("設定・診断・プリセット削除をデスクトップへ委譲する", async () => {
+    const settings = {
+      version: 1 as const,
+      closeBehavior: "hide" as const,
+      launchAtLogin: false,
+      defaultPresetId: "standard",
+      autoStartBreak: false,
+      notificationsEnabled: true,
+      masterVolume: 1,
+      playSelectedTrackOnFocus: true,
+      crossfadeSeconds: 2,
+    };
+    mocks.invoke.mockResolvedValue(settings);
+
+    await desktopBridge.getSettings();
+    await desktopBridge.saveSettings(settings);
+    await desktopBridge.deleteTimerPreset("custom");
+    await desktopBridge.runtimeDiagnostics();
+    await desktopBridge.openDataDirectory();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("get_app_settings", undefined);
+    expect(mocks.invoke).toHaveBeenCalledWith("save_app_settings", { settings });
+    expect(mocks.invoke).toHaveBeenCalledWith("delete_timer_preset", { id: "custom" });
+    expect(mocks.invoke).toHaveBeenCalledWith("runtime_diagnostics", undefined);
+    expect(mocks.invoke).toHaveBeenCalledWith("open_data_directory", undefined);
+  });
+
+  test("Music Alchemyではrecipeだけを生成要求として送る", async () => {
+    mocks.invoke.mockResolvedValue({ id: "draft-1" });
+    const request = { version: 1 as const, moods: [{ moodId: "scene-rainy-window", weight: 1 }] };
+
+    await desktopBridge.generateTrack(request);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("generate_music", {
+      request: { recipe: request },
+      onProgress: mocks.channels[0],
+    });
+  });
 });

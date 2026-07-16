@@ -2,6 +2,7 @@ use crate::music::codex_client::{
     CodexClient, GenerationControls, GenerationPrompt, GenerationTurn,
 };
 use crate::music::validator::{AudioValidation, StaticValidator, ValidatedGeneration};
+use lyra_core::MusicRecipeV1;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -50,6 +51,9 @@ pub struct GeneratedMusicDraft {
     pub source_sha256: String,
     pub canonical_seed: i64,
     pub audio_validation: String,
+    pub recipe_version: Option<i64>,
+    pub recipe_json: Option<String>,
+    pub structure_family: String,
 }
 
 #[derive(Debug, Error)]
@@ -82,7 +86,34 @@ impl<B: GenerationBackend> GenerationService<B> {
         controls: GenerationControls,
         focus_active: bool,
     ) -> Result<GeneratedMusicDraft, GenerationError> {
-        let prompt = GenerationPrompt::new(controls.clone());
+        let prompt = GenerationPrompt::new(controls);
+        self.generate_prompt(prompt, focus_active)
+    }
+
+    pub fn generate_recipe(
+        &mut self,
+        recipe: MusicRecipeV1,
+        focus_active: bool,
+    ) -> Result<GeneratedMusicDraft, GenerationError> {
+        let prompt = GenerationPrompt::from_recipe(recipe)
+            .map_err(|error| GenerationError::Validation(error.to_string()))?;
+        self.generate_prompt(prompt, focus_active)
+    }
+
+    fn generate_prompt(
+        &mut self,
+        prompt: GenerationPrompt,
+        focus_active: bool,
+    ) -> Result<GeneratedMusicDraft, GenerationError> {
+        let controls = prompt.controls().clone();
+        let recipe_version = prompt.resolved_recipe().map(|_| 1);
+        let recipe_json = prompt.resolved_recipe().map(|resolved| {
+            serde_json::to_string(&resolved.recipe).expect("resolved recipe is serializable")
+        });
+        let structure_family = prompt
+            .resolved_recipe()
+            .map(|resolved| resolved.structure_family.clone())
+            .unwrap_or_else(|| controls.arrangement.clone());
         let turn = self
             .backend
             .generate(&prompt)
@@ -122,6 +153,9 @@ impl<B: GenerationBackend> GenerationService<B> {
                 AudioValidation::DeferredUntilFocusEnds => "deferred_until_focus_ends",
             }
             .into(),
+            recipe_version,
+            recipe_json,
+            structure_family,
         })
     }
 

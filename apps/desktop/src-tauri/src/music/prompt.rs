@@ -1,3 +1,4 @@
+use lyra_core::{LyraError, MusicRecipeV1, ResolvedMusicRecipe};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -13,11 +14,46 @@ pub struct GenerationControls {
 #[derive(Debug, Clone)]
 pub struct GenerationPrompt {
     controls: GenerationControls,
+    recipe: Option<ResolvedMusicRecipe>,
 }
 
 impl GenerationPrompt {
     pub fn new(controls: GenerationControls) -> Self {
-        Self { controls }
+        Self {
+            controls,
+            recipe: None,
+        }
+    }
+
+    pub fn from_recipe(recipe: MusicRecipeV1) -> Result<Self, LyraError> {
+        let recipe = recipe.resolve()?;
+        let level = |value: f64| {
+            if value < 0.34 {
+                "low"
+            } else if value < 0.67 {
+                "medium"
+            } else {
+                "high"
+            }
+        };
+        Ok(Self {
+            controls: GenerationControls {
+                theme: "mood-alchemy".into(),
+                arrangement: recipe.structure_family.clone(),
+                brightness: level(recipe.vectors.brightness).into(),
+                density: level(recipe.vectors.density).into(),
+                motion: level(recipe.vectors.motion).into(),
+            },
+            recipe: Some(recipe),
+        })
+    }
+
+    pub fn controls(&self) -> &GenerationControls {
+        &self.controls
+    }
+
+    pub fn resolved_recipe(&self) -> Option<&ResolvedMusicRecipe> {
+        self.recipe.as_ref()
     }
 
     pub fn repair(&self, diagnostics: &str) -> String {
@@ -33,6 +69,9 @@ fn arrangement_recipe(arrangement: &str) -> &'static str {
         "ambient" => "- ambient: BPM 54〜72。2〜8拍の協和パッドと薄い高音パルスを使い、持続低音ドローンは禁止します。",
         "lofi" => "- lofi: BPM 68〜88。柔らかいコード反復と控えめなパルスを使い、重低音キック、強いスネア、歪みは禁止します。",
         "minimal-melody" => "- minimal-melody: BPM 64〜84。3〜7音のメジャー・ペンタトニック動機を使い、警告音のような単音連打は禁止します。",
+        "organic-pulse" => "- organic-pulse: BPM 58〜86。木質の短い音と穏やかな呼吸状パルスを組み合わせます。",
+        "downtempo" => "- downtempo: BPM 62〜92。丸い低中域パルスと広い和声を使い、強いドラムは禁止します。",
+        "neoclassical" => "- neoclassical: BPM 52〜78。疎なペンタトニック旋律と長い協和残響を使います。",
         _ => "- 未対応の曲調です。音楽を生成せず、制約違反として扱ってください。",
     }
 }
@@ -43,12 +82,23 @@ fn theme_recipe(theme: &str) -> &'static str {
         "rainy-cabin" => "- rainy-cabin: 小音量のNoiseと明るい木質音。雨音を主役にしません。",
         "minimal-pulse" => "- minimal-pulse: 丸めたPulseOsc/SinOscと安定した脈動。刺さる矩形波や警報音を避けます。",
         "organic-drift" => "- organic-drift: 遅いSawOsc/SinOsc変調。音程と和声の中心は固定します。",
+        "mood-alchemy" => "- mood-alchemy: 正規化済みムードレシピ、構成、テンポ、音色ガイダンスを最優先します。",
         _ => "- 未対応のテーマです。音楽を生成せず、制約違反として扱ってください。",
     }
 }
 
 impl fmt::Display for GenerationPrompt {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let recipe_contract = self.recipe.as_ref().map(|recipe| {
+            let moods = serde_json::to_string(&recipe.recipe.moods).unwrap_or_else(|_| "[]".into());
+            format!(
+                "- recipeVersion=1\n- moods={moods}\n- structureFamily={}\n- tempoRange={}-{} BPM\n- timbreGuidance={}\n- normalizedVectors: brightness={:.3}, density={:.3}, motion={:.3}, warmth={:.3}, space={:.3}, pulse={:.3}, melody={:.3}, organic={:.3}",
+                recipe.structure_family, recipe.tempo_min, recipe.tempo_max, recipe.timbre_guidance,
+                recipe.vectors.brightness, recipe.vectors.density, recipe.vectors.motion,
+                recipe.vectors.warmth, recipe.vectors.space, recipe.vectors.pulse,
+                recipe.vectors.melody, recipe.vectors.organic,
+            )
+        }).unwrap_or_else(|| "- recipeVersion=legacy-controls".into());
         write!(
             formatter,
             r#"Lyra向けの長時間作業用BGMを1曲生成してください。
@@ -59,6 +109,7 @@ impl fmt::Display for GenerationPrompt {
 - brightness={brightness}
 - density={density}
 - motion={motion}
+{recipe_contract}
 
 1. 絶対条件
 - 明るく穏やかで、十分に聞こえ、注意を奪わないBGMにします。映画的恐怖、サスペンス、暗いドローン、警報音は禁止です。
@@ -116,6 +167,7 @@ while (true) {{
             brightness = self.controls.brightness,
             density = self.controls.density,
             motion = self.controls.motion,
+            recipe_contract = recipe_contract,
         )
     }
 }

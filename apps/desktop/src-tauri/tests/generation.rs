@@ -1,3 +1,4 @@
+use lyra_core::{MoodSelection, MusicRecipeV1};
 use lyra_desktop::music::codex_client::{GenerationControls, GenerationPrompt, GenerationTurn};
 use lyra_desktop::music::generation::{GenerationBackend, GenerationService};
 
@@ -79,4 +80,23 @@ fn focus_generation_is_marked_for_deferred_audio_validation() {
     let mut service = GenerationService::new(backend);
     let draft = service.generate(controls(), true).unwrap();
     assert_eq!(draft.audio_validation, "deferred_until_focus_ends");
+}
+
+#[test]
+fn recipe_prompt_contains_normalized_vectors_structure_tempo_and_timbre() {
+    let recipe = MusicRecipeV1 {
+        version: 1,
+        moods: vec![MoodSelection {
+            mood_id: "scene-rainy-window".into(),
+            weight: 1.0,
+        }],
+    };
+    let prompt = GenerationPrompt::from_recipe(recipe).unwrap();
+    let text = prompt.to_string();
+
+    assert!(text.contains("recipeVersion=1"));
+    assert!(text.contains("structureFamily="));
+    assert!(text.contains("tempoRange="));
+    assert!(text.contains("timbreGuidance="));
+    assert!(text.contains("space=0.900"));
 }

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, normalizePath } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
@@ -37,6 +38,7 @@ assertWebChuckRuntimeAssets();
 export default defineConfig({
   plugins: [
     react(),
+    tailwindcss(),
     ...viteStaticCopy({
       targets: [
         {
@@ -51,6 +53,11 @@ export default defineConfig({
   ],
   define: {
     __WEBCHUCK_ASSET_ROOT__: JSON.stringify(WEBCHUCK_ASSET_ROOT),
+  },
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src/", import.meta.url)),
+    },
   },
   clearScreen: false,
   server: {

@@ -84,11 +84,21 @@ fn rejects_nested_or_unbounded_voice_loops() {
 fn rejects_out_of_range_audio_parameters() {
     for invalid in [
         VALID.replace("0.12 => master.gain;", "1.01 => master.gain;"),
-        VALID.replace("440 => oscillator.freq;", "19 => oscillator.freq;"),
+        VALID.replace("440 => oscillator.freq;", "0.001 => oscillator.freq;"),
         VALID.replace("440 => oscillator.freq;", "20001 => oscillator.freq;"),
     ] {
         assert!(SourcePolicy::v1().validate(&invalid).is_err());
     }
+}
+
+#[test]
+fn accepts_sub_audible_frequency_for_slow_modulation() {
+    let source = VALID.replace(
+        "440 => oscillator.freq;",
+        "440 => oscillator.freq;\nSinOsc slowLfo;\n1.04 => slowLfo.freq;",
+    );
+
+    SourcePolicy::v1().validate(&source).unwrap();
 }
 
 #[test]

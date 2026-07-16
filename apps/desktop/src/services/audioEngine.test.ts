@@ -24,6 +24,7 @@ class FakeHost implements AudioHost {
   readonly errors: Array<() => void> = [];
   suspend = vi.fn(async () => undefined);
   resume = vi.fn(async () => undefined);
+  setVolume = vi.fn();
   prepareForUserGesture = vi.fn();
   validateSource = vi.fn(async () => ({ durationMs: 5000 as const, elapsedAudioSeconds: 5, peak: 0.5, nonSilentMs: 500, nonFiniteSamples: 0, processorErrors: 0 }));
 
@@ -54,6 +55,40 @@ describe("AudioEngine", () => {
     expect(host.decks[1].fades).toContainEqual([1, 2]);
     expect(host.decks[1].starts[0]).toContain("Math.srandom(2);");
     expect(engine.getState()).toEqual({ status: "playing", trackId: "second", disabled: false });
+  });
+
+  test("applies volume to the host output without rebuilding decks", async () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+    await engine.play({ trackId: "track", source: SOURCE, seed: 7 });
+
+    engine.setVolume(0.42);
+
+    expect(host.setVolume).toHaveBeenCalledWith(0.42);
+    expect(host.decks).toHaveLength(1);
+  });
+
+  test("uses the configured crossfade for subsequent track changes", async () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+    engine.setCrossfadeSeconds(6.5);
+
+    await engine.play({ trackId: "first", source: SOURCE, seed: 1 });
+    await engine.play({ trackId: "second", source: SOURCE, seed: 2 });
+
+    expect(host.decks[0].fades).toContainEqual([0, 6.5]);
+    expect(host.decks[1].fades).toContainEqual([1, 6.5]);
+  });
+
+  test("clamps unsafe audio setting values", () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+
+    engine.setVolume(4);
+    engine.setCrossfadeSeconds(-3);
+
+    expect(host.setVolume).toHaveBeenCalledWith(1);
+    expect(engine.getCrossfadeSeconds()).toBe(0);
   });
 
   test("pauses, resumes, and stops client playback", async () => {

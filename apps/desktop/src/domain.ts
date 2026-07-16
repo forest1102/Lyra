@@ -1,4 +1,19 @@
 export type TaskList = "today" | "backlog";
+export type TaskStatus = "inbox" | "active" | "completed";
+export type TaskPriority = "none" | "low" | "medium" | "high";
+export type TaskRecurrence = "daily" | "weekly" | "monthly";
+
+export interface Project {
+  id: string;
+  name: string;
+  color: string | null;
+  position: number;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+}
 
 export interface Task {
   id: string;
@@ -6,8 +21,46 @@ export interface Task {
   list: TaskList;
   completed: boolean;
   estimatedPomodoros: number | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId: string | null;
+  parentId: string | null;
+  notes: string;
+  plannedDate: string | null;
+  dueDate: string | null;
+  position: number;
+  completedAt: string | null;
+  recurrence: TaskRecurrence | null;
+  tags: Tag[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AddTaskV2 {
+  title: string;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  estimatedPomodoros?: number | null;
+  projectId?: string | null;
+  parentId?: string | null;
+  notes?: string;
+  plannedDate?: string | null;
+  dueDate?: string | null;
+  recurrence?: TaskRecurrence | null;
+  tagIds?: string[];
+}
+
+export interface UpdateTask {
+  title?: string;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  estimatedPomodoros?: number | null;
+  projectId?: string | null;
+  notes?: string;
+  plannedDate?: string | null;
+  dueDate?: string | null;
+  recurrence?: TaskRecurrence | null;
+  tagIds?: string[];
 }
 
 export interface TimerPreset {
@@ -51,15 +104,29 @@ export const MUSIC_THEMES = ["deep-space", "rainy-cabin", "minimal-pulse", "orga
 export type MusicTheme = typeof MUSIC_THEMES[number];
 export const MUSIC_ARRANGEMENTS = ["ambient", "lofi", "minimal-melody"] as const;
 export type MusicArrangement = typeof MUSIC_ARRANGEMENTS[number];
+export type MusicStructureFamily = MusicArrangement | "organic-pulse" | "downtempo" | "neoclassical";
+export type MusicTrackTheme = MusicTheme | "mood-alchemy";
 export type MusicIntensity = "low" | "medium" | "high";
 
-export interface MusicGenerationRequest {
+export interface LegacyMusicGenerationRequest {
   theme: MusicTheme;
   arrangement: MusicArrangement;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;
 }
+
+export interface MoodSelection {
+  moodId: string;
+  weight: number;
+}
+
+export interface MusicRecipeV1 {
+  version: 1;
+  moods: MoodSelection[];
+}
+
+export type MusicGenerationRequest = MusicRecipeV1 | LegacyMusicGenerationRequest;
 
 export interface MusicGenerationProgress {
   phase: "started" | "coding" | "validating" | "previewing";
@@ -92,8 +159,8 @@ export interface MusicTrack {
   parentTrackId: string | null;
   title: string;
   description: string;
-  theme: MusicTheme;
-  arrangement: MusicArrangement;
+  theme: MusicTrackTheme;
+  arrangement: MusicStructureFamily;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;
@@ -104,6 +171,9 @@ export interface MusicTrack {
   canonicalSeed: number;
   rating: TrackRating;
   favorite: boolean;
+  recipeVersion: number | null;
+  recipeJson: string | null;
+  structureFamily: MusicStructureFamily | null;
   createdAt: string;
 }
 
@@ -112,8 +182,8 @@ export interface MusicDraft {
   parentTrackId: string | null;
   title: string;
   description: string;
-  theme: MusicTheme;
-  arrangement: MusicArrangement;
+  theme: MusicTrackTheme;
+  arrangement: MusicStructureFamily;
   brightness: MusicIntensity;
   density: MusicIntensity;
   motion: MusicIntensity;
@@ -123,4 +193,56 @@ export interface MusicDraft {
   sourceSha256: string;
   canonicalSeed: number;
   audioValidation: "pending" | "deferred_until_focus_ends" | "passed" | "failed";
+  recipeVersion: number | null;
+  recipeJson: string | null;
+  structureFamily: MusicStructureFamily;
+}
+
+export type MusicTrackSort = "created_desc" | "created_asc" | "title_asc" | "title_desc" | "bpm_asc" | "bpm_desc";
+
+export interface MusicTrackListQuery {
+  query?: string;
+  favorite?: boolean;
+  structureFamily?: string;
+  sort?: MusicTrackSort;
+}
+
+export interface DeleteMusicTracksResult {
+  deletedIds: string[];
+  unlinkedChildIds: string[];
+  cleanupWarnings?: string[];
+}
+
+export interface AppSettingsV1 {
+  version: 1;
+  closeBehavior: "hide" | "quit";
+  launchAtLogin: boolean;
+  defaultPresetId: string;
+  autoStartBreak: boolean;
+  notificationsEnabled: boolean;
+  masterVolume: number;
+  playSelectedTrackOnFocus: boolean;
+  crossfadeSeconds: number;
+}
+
+export const DEFAULT_APP_SETTINGS: AppSettingsV1 = {
+  version: 1,
+  closeBehavior: "hide",
+  launchAtLogin: false,
+  defaultPresetId: "standard",
+  autoStartBreak: false,
+  notificationsEnabled: true,
+  masterVolume: 1,
+  playSelectedTrackOnFocus: true,
+  crossfadeSeconds: 2,
+};
+
+export type RuntimeDiagnosticComponent = "codex" | "webchuck-assets" | "audio-context" | "worklet" | "sqlite";
+export type RuntimeDiagnosticStatus = "ok" | "warning" | "error";
+
+export interface RuntimeDiagnostic {
+  component: RuntimeDiagnosticComponent;
+  status: RuntimeDiagnosticStatus;
+  message: string;
+  remediation?: string;
 }

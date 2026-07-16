@@ -3,11 +3,12 @@ mod ipc;
 pub mod music;
 
 use commands::{AppState, NativePaths};
-use lyra_core::{Database, TimerEngine};
+use lyra_core::{Database, TimerAction, TimerEngine, TimerPreset, TimerState, TimerStatus};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, RunEvent};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_notification::NotificationExt;
 
 fn resolve_data_directory(
@@ -18,7 +19,14 @@ fn resolve_data_directory(
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .macos_launcher(MacosLauncher::LaunchAgent)
+                .build(),
+        );
     #[cfg(feature = "e2e")]
     let builder = builder
         .plugin(tauri_plugin_wdio::init())
@@ -35,15 +43,15 @@ pub fn run() {
             let paths = NativePaths::new(data_directory.clone());
             paths.cleanup_legacy_audio()?;
             let database = Database::open(data_directory.join("lyra.db"))?;
+            database.recover_music_delete_quarantine(&data_directory)?;
             database.interrupt_running_sessions()?;
-            let standard = database
-                .list_timer_presets()?
-                .into_iter()
-                .find(|preset| preset.id == "standard")
+            let settings = database.get_app_settings()?;
+            let presets = database.list_timer_presets()?;
+            let startup_preset = select_startup_preset(&presets, &settings.default_preset_id)
                 .ok_or("Standard timer preset was not seeded")?;
             app.manage(AppState {
                 database: Mutex::new(database),
-                timer: Mutex::new(TimerEngine::new(standard)),
+                timer: Mutex::new(TimerEngine::new(startup_preset)),
                 generation: Mutex::new(None),
                 generation_active: Arc::new(AtomicBool::new(false)),
                 generation_cancellation: Arc::new(AtomicBool::new(false)),
@@ -58,14 +66,29 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_tasks,
             commands::add_task,
+            commands::add_task_v2,
+            commands::update_task,
+            commands::reorder_tasks,
+            commands::list_projects,
+            commands::save_project,
+            commands::list_tags,
+            commands::save_tag,
             commands::set_task_completed,
             commands::move_task,
             commands::list_timer_presets,
             commands::save_timer_preset,
+            commands::delete_timer_preset,
             commands::get_timer_state,
             commands::list_music_tracks,
+            commands::rename_music_track,
+            commands::delete_music_tracks,
+            commands::get_app_settings,
+            commands::save_app_settings,
+            commands::runtime_diagnostics,
+            commands::open_data_directory,
             commands::generate_music,
             commands::cancel_music_generation,
+            commands::discard_music_draft,
             commands::confirm_music_draft_validation,
             commands::save_music_draft,
             commands::get_music_track_source,
@@ -83,10 +106,19 @@ pub fn run() {
             event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } if label == "main" => {
-            api.prevent_close();
             let _ = app_handle.emit_to("main", "audio://stop", ());
-            if let Some(window) = app_handle.get_webview_window("main") {
-                let _ = window.hide();
+            let close_behavior = app_handle
+                .try_state::<AppState>()
+                .and_then(|state| state.database.lock().ok()?.get_app_settings().ok())
+                .map(|settings| settings.close_behavior)
+                .unwrap_or_else(|| "hide".into());
+            if close_behavior == "quit" {
+                app_handle.exit(0);
+            } else {
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
             }
         }
         RunEvent::ExitRequested { .. } => {
@@ -125,36 +157,75 @@ fn start_timer_loop(app: tauri::AppHandle) {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             let state = app.state::<AppState>();
-            let timer_state = {
+            let now_ms = unix_time_ms();
+            let mut timer_state = {
                 let timer = state.timer.lock().expect("timer lock poisoned");
-                if timer.state().status == lyra_core::TimerStatus::Running {
-                    timer
-                        .dispatch(lyra_core::TimerAction::Tick, unix_time_ms())
-                        .unwrap_or_else(|_| timer.state())
-                } else {
-                    timer.state()
-                }
+                advance_timer(&timer, now_ms, false)
             };
+            if timer_state.status == TimerStatus::AwaitingBreak && !notified {
+                let (auto_start_break, notifications_enabled) = state
+                    .database
+                    .lock()
+                    .ok()
+                    .and_then(|database| database.get_app_settings().ok())
+                    .map(|settings| (settings.auto_start_break, settings.notifications_enabled))
+                    .unwrap_or((false, true));
+                let _ = app.emit_to("main", "audio://stop", ());
+                if notifications_enabled {
+                    let body = if auto_start_break {
+                        "BGMを停止し、休憩を始めました。"
+                    } else {
+                        "BGMを停止しました。休憩は準備ができたら開始してください。"
+                    };
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title("集中が完了しました")
+                        .body(body)
+                        .show();
+                }
+                if auto_start_break {
+                    let timer = state.timer.lock().expect("timer lock poisoned");
+                    timer_state = advance_timer(&timer, now_ms, true);
+                } else {
+                    notified = true;
+                }
+            } else if timer_state.status != TimerStatus::AwaitingBreak {
+                notified = false;
+            }
             if let Some(tray) = app.tray_by_id("lyra") {
                 let minutes = timer_state.remaining_seconds / 60;
                 let seconds = timer_state.remaining_seconds % 60;
                 let _ = tray.set_title(Some(format!("Lyra {minutes:02}:{seconds:02}")));
             }
             let _ = app.emit("timer://state", &timer_state);
-            if timer_state.status == lyra_core::TimerStatus::AwaitingBreak && !notified {
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("集中が完了しました")
-                    .body("BGMを停止しました。休憩は準備ができたら開始してください。")
-                    .show();
-                let _ = app.emit_to("main", "audio://stop", ());
-                notified = true;
-            } else if timer_state.status != lyra_core::TimerStatus::AwaitingBreak {
-                notified = false;
-            }
         }
     });
+}
+
+fn advance_timer(timer: &TimerEngine, now_ms: u64, auto_start_break: bool) -> TimerState {
+    let current = timer.state();
+    let mut state = if current.status == TimerStatus::Running {
+        timer
+            .dispatch(TimerAction::Tick, now_ms)
+            .unwrap_or_else(|_| timer.state())
+    } else {
+        current
+    };
+    if auto_start_break && state.status == TimerStatus::AwaitingBreak {
+        state = timer
+            .dispatch(TimerAction::StartBreak, now_ms)
+            .unwrap_or(state);
+    }
+    state
+}
+
+fn select_startup_preset(presets: &[TimerPreset], desired_id: &str) -> Option<TimerPreset> {
+    presets
+        .iter()
+        .find(|preset| preset.id == desired_id)
+        .or_else(|| presets.iter().find(|preset| preset.id == "standard"))
+        .cloned()
 }
 
 fn unix_time_ms() -> u64 {
@@ -200,7 +271,8 @@ mod ipc_contract_tests {
 
 #[cfg(test)]
 mod data_directory_tests {
-    use super::resolve_data_directory;
+    use super::{advance_timer, resolve_data_directory, select_startup_preset};
+    use lyra_core::{TimerAction, TimerEngine, TimerPhase, TimerPreset, TimerStatus};
     use std::path::PathBuf;
 
     #[test]
@@ -219,5 +291,47 @@ mod data_directory_tests {
         let normal = PathBuf::from("/normal/app-data");
 
         assert_eq!(resolve_data_directory(normal.clone(), None), normal);
+    }
+
+    fn preset(id: &str, focus_minutes: i64) -> TimerPreset {
+        TimerPreset {
+            id: id.into(),
+            name: id.into(),
+            focus_minutes,
+            short_break_minutes: 5,
+            long_break_minutes: 15,
+            cycles_before_long_break: 4,
+            built_in: true,
+        }
+    }
+
+    #[test]
+    fn saved_default_preset_is_selected_with_standard_as_fallback() {
+        let presets = vec![preset("standard", 25), preset("deep-focus", 50)];
+        assert_eq!(
+            select_startup_preset(&presets, "deep-focus").unwrap().id,
+            "deep-focus"
+        );
+        assert_eq!(
+            select_startup_preset(&presets, "missing").unwrap().id,
+            "standard"
+        );
+    }
+
+    #[test]
+    fn automatic_break_starts_only_when_the_setting_is_enabled() {
+        let manual = TimerEngine::new(preset("standard", 1));
+        manual.dispatch(TimerAction::Start, 0).unwrap();
+        assert_eq!(
+            advance_timer(&manual, 60_000, false).status,
+            TimerStatus::AwaitingBreak
+        );
+
+        let automatic = TimerEngine::new(preset("standard", 1));
+        automatic.dispatch(TimerAction::Start, 0).unwrap();
+        let state = advance_timer(&automatic, 60_000, true);
+        assert_eq!(state.status, TimerStatus::Running);
+        assert_eq!(state.phase, TimerPhase::ShortBreak);
+        assert_eq!(state.remaining_seconds, 5 * 60);
     }
 }

@@ -1,14 +1,15 @@
 import { describe, expect, test } from "vitest";
-import type { MusicDraft, MusicGenerationRequest } from "../domain";
+import type { LegacyMusicGenerationRequest, MusicDraft } from "../domain";
 import { runMusicGeneration, type MusicGenerationPhase } from "./musicGeneration";
 
-const request: MusicGenerationRequest = { theme: "deep-space", arrangement: "ambient", brightness: "medium", density: "medium", motion: "low" };
+const request: LegacyMusicGenerationRequest = { theme: "deep-space", arrangement: "ambient", brightness: "medium", density: "medium", motion: "low" };
 
 function draft(audioValidation: MusicDraft["audioValidation"] = "pending"): MusicDraft {
   return {
     id: "draft-1", parentTrackId: null, title: "深宇宙 42", description: "フォーカス用BGM", ...request,
     bpm: 64, tailSeconds: 4, chuckSource: "Math.srandom(__LYRA_SEED__); SinOsc osc => dac; while(true) { 1::second => now; }",
-    sourceSha256: "sha256", canonicalSeed: 42, audioValidation
+    sourceSha256: "sha256", canonicalSeed: 42, audioValidation,
+    recipeVersion: null, recipeJson: null, structureFamily: "ambient"
   };
 }
 

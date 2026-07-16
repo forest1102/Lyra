@@ -27,7 +27,7 @@ export const generationErrorMessage = (reason?: unknown): string => {
 };
 export const previewErrorMessage = (reason?: unknown): string => {
   const detail = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "不明なエラー";
-  return `音声の検証・再生に失敗しました: ${detail}`;
+  return detail.includes("5秒音声検証は合格しました") ? detail : `音声の検証に失敗しました: ${detail}`;
 };
 
 export function generationProgressLabel(phase: MusicGenerationPhase): string {

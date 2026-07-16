@@ -46,6 +46,9 @@ impl<'a> TrackStore<'a> {
                 source: draft.chuck_source,
                 canonical_seed: draft.canonical_seed,
                 directory: self.directory.clone(),
+                recipe_version: draft.recipe_version,
+                recipe_json: draft.recipe_json,
+                structure_family: Some(draft.structure_family),
             })
             .map_err(Into::into)
     }
@@ -81,6 +84,9 @@ impl<'a> TrackStore<'a> {
                 source,
                 canonical_seed: seed,
                 directory: self.directory.clone(),
+                recipe_version: parent.recipe_version,
+                recipe_json: parent.recipe_json.clone(),
+                structure_family: parent.structure_family.clone(),
             })
             .map_err(Into::into)
     }
