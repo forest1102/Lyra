@@ -33,7 +33,9 @@ export const previewErrorMessage = (reason?: unknown): string => {
 export function generationProgressLabel(phase: MusicGenerationPhase): string {
   switch (phase) {
     case "idle": return "";
-    case "coding": return "1/2 ChucKをコーディング中…";
+    case "composing":
+    case "source_validating":
+    case "repairing": return "1/2 ChucKをコーディング中…";
     case "ready": return "コード生成完了。検証して再生を押してください。";
     case "audio": return "2/2 音声を生成・検証中…";
     case "deferred": return "コード生成完了。音声生成は集中終了後に再開できます。";

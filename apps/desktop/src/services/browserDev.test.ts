@@ -142,6 +142,18 @@ describe("BrowserDevBridge", () => {
     await expect(pending).rejects.toThrow("cancelled");
   });
 
+  test("固定Draft生成でも実処理と同じ生成境界を順に通知する", async () => {
+    const bridge = createBrowserDevBridge();
+    const phases: string[] = [];
+
+    await bridge.generateTrack(
+      { version: 1, moods: [{ moodId: "scene-rainy-window", weight: 1 }] },
+      ({ phase }) => phases.push(phase),
+    );
+
+    expect(phases).toEqual(["started", "composing", "source_validating"]);
+  });
+
   test("自動休憩設定では集中完了後に短い休憩を開始する", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

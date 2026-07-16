@@ -11,7 +11,7 @@ import {
   normalizeMusicRecipe,
   type MusicRecipeV1,
 } from "../services/moodCatalog";
-import { MusicGenerationPipelineError, runMusicGeneration, type MusicGenerationPhase } from "../services/musicGeneration";
+import { isActiveGenerationPhase, MusicGenerationPipelineError, runMusicGeneration, type MusicGenerationPhase } from "../services/musicGeneration";
 import { useLyra } from "../state/LyraContext";
 import { generationErrorMessage, previewErrorMessage } from "../ui/labels";
 import { Screen } from "../ui/components";
@@ -55,7 +55,7 @@ export function StudioScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generationRun = useRef(0);
-  const generating = phase === "coding";
+  const generating = isActiveGenerationPhase(phase);
   const validating = phase === "audio";
   const draftPlaying = Boolean(draft && musicPlayback.status === "playing" && musicPlayback.trackId === draft.id);
 

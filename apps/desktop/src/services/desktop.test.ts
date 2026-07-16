@@ -107,7 +107,7 @@ describe("デスクトップIPC", () => {
     const onProgress = vi.fn();
     mocks.invoke.mockImplementation(async (_command, args) => {
       const channel = (args as { onProgress: { onmessage?: (message: unknown) => void } }).onProgress;
-      channel.onmessage?.({ phase: "coding" });
+      channel.onmessage?.({ phase: "composing" });
       return draft;
     });
 
@@ -122,7 +122,7 @@ describe("デスクトップIPC", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("generate_music", expect.objectContaining({
       onProgress: mocks.channels[0]
     }));
-    expect(onProgress).toHaveBeenCalledWith({ phase: "coding" });
+    expect(onProgress).toHaveBeenCalledWith({ phase: "composing" });
 
   });
 

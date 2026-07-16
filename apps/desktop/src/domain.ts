@@ -129,7 +129,7 @@ export interface MusicRecipeV1 {
 export type MusicGenerationRequest = MusicRecipeV1 | LegacyMusicGenerationRequest;
 
 export interface MusicGenerationProgress {
-  phase: "started" | "coding" | "validating" | "previewing";
+  phase: "started" | "composing" | "source_validating" | "repairing" | "validating" | "previewing";
 }
 
 export type TrackRating = "good" | "poor" | null;

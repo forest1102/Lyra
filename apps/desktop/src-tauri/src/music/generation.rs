@@ -86,8 +86,20 @@ impl<B: GenerationBackend> GenerationService<B> {
         controls: GenerationControls,
         focus_active: bool,
     ) -> Result<GeneratedMusicDraft, GenerationError> {
+        self.generate_with_progress(controls, focus_active, |_| {})
+    }
+
+    pub fn generate_with_progress<F>(
+        &mut self,
+        controls: GenerationControls,
+        focus_active: bool,
+        on_progress: F,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+    {
         let prompt = GenerationPrompt::new(controls);
-        self.generate_prompt(prompt, focus_active)
+        self.generate_prompt(prompt, focus_active, on_progress)
     }
 
     pub fn generate_recipe(
@@ -95,16 +107,32 @@ impl<B: GenerationBackend> GenerationService<B> {
         recipe: MusicRecipeV1,
         focus_active: bool,
     ) -> Result<GeneratedMusicDraft, GenerationError> {
-        let prompt = GenerationPrompt::from_recipe(recipe)
-            .map_err(|error| GenerationError::Validation(error.to_string()))?;
-        self.generate_prompt(prompt, focus_active)
+        self.generate_recipe_with_progress(recipe, focus_active, |_| {})
     }
 
-    fn generate_prompt(
+    pub fn generate_recipe_with_progress<F>(
+        &mut self,
+        recipe: MusicRecipeV1,
+        focus_active: bool,
+        on_progress: F,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+    {
+        let prompt = GenerationPrompt::from_recipe(recipe)
+            .map_err(|error| GenerationError::Validation(error.to_string()))?;
+        self.generate_prompt(prompt, focus_active, on_progress)
+    }
+
+    fn generate_prompt<F>(
         &mut self,
         prompt: GenerationPrompt,
         focus_active: bool,
-    ) -> Result<GeneratedMusicDraft, GenerationError> {
+        mut on_progress: F,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+    {
         let controls = prompt.controls().clone();
         let recipe_version = prompt.resolved_recipe().map(|_| 1);
         let recipe_json = prompt.resolved_recipe().map(|resolved| {
@@ -114,20 +142,25 @@ impl<B: GenerationBackend> GenerationService<B> {
             .resolved_recipe()
             .map(|resolved| resolved.structure_family.clone())
             .unwrap_or_else(|| controls.arrangement.clone());
+        on_progress("composing");
         let turn = self
             .backend
             .generate(&prompt)
             .map_err(GenerationError::Backend)?;
-        let validated = self
-            .validate(&turn.output, focus_active)
-            .or_else(|first_error| {
+        on_progress("source_validating");
+        let validated = match self.validate(&turn.output, focus_active) {
+            Ok(validated) => Ok(validated),
+            Err(first_error) => {
+                on_progress("repairing");
                 let repaired = self
                     .backend
                     .repair(&turn.thread_id, &prompt, &first_error)
                     .map_err(GenerationError::Backend)?;
+                on_progress("source_validating");
                 self.validate(&repaired, focus_active)
                     .map_err(GenerationError::Validation)
-            })?;
+            }
+        }?;
 
         let id = Uuid::new_v4();
         let chuck_source = validated.result.chuck_source;

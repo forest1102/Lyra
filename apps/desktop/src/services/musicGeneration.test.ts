@@ -19,23 +19,41 @@ describe("BGM生成パイプライン", () => {
     const result = await runMusicGeneration({
       request,
       generate: async (_request, onProgress) => {
-        onProgress({ phase: "coding" });
+        onProgress({ phase: "started" });
+        onProgress({ phase: "composing" });
+        onProgress({ phase: "source_validating" });
         return draft();
       },
       onPhase: (phase) => phases.push(phase)
     });
-    expect(phases).toEqual(["coding", "ready"]);
+    expect(phases).toEqual(["composing", "source_validating", "ready"]);
     expect(result.audioValidation).toBe("pending");
   });
 
   test("集中中は音声処理を呼ばず延期する", async () => {
     const phases: MusicGenerationPhase[] = [];
-    const result = await runMusicGeneration({ request, generate: async (_request, onProgress) => { onProgress({ phase: "coding" }); return draft("deferred_until_focus_ends"); }, onPhase: (phase) => phases.push(phase) });
-    expect(phases).toEqual(["coding", "deferred"]);
+    const result = await runMusicGeneration({ request, generate: async (_request, onProgress) => { onProgress({ phase: "composing" }); return draft("deferred_until_focus_ends"); }, onPhase: (phase) => phases.push(phase) });
+    expect(phases).toEqual(["composing", "deferred"]);
     expect(result.audioValidation).toBe("deferred_until_focus_ends");
   });
 
   test("コード生成の失敗段階を保持する", async () => {
-    await expect(runMusicGeneration({ request, generate: async () => { throw new Error("Codex stopped"); }, onPhase: () => undefined })).rejects.toMatchObject({ stage: "coding" });
+    await expect(runMusicGeneration({ request, generate: async (_request, onProgress) => { onProgress({ phase: "composing" }); throw new Error("Codex stopped"); }, onPhase: () => undefined })).rejects.toMatchObject({ stage: "composing" });
+  });
+
+  test("修復時は静的検証との往復をそのまま通知する", async () => {
+    const phases: MusicGenerationPhase[] = [];
+    await runMusicGeneration({
+      request,
+      generate: async (_request, onProgress) => {
+        onProgress({ phase: "composing" });
+        onProgress({ phase: "source_validating" });
+        onProgress({ phase: "repairing" });
+        onProgress({ phase: "source_validating" });
+        return draft();
+      },
+      onPhase: (phase) => phases.push(phase),
+    });
+    expect(phases).toEqual(["composing", "source_validating", "repairing", "source_validating", "ready"]);
   });
 });

@@ -1,7 +1,7 @@
 import { ArrowRightIcon, FlaskConicalIcon, PlayIcon, SaveIcon, SparklesIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import type { MusicDraft } from "../../domain";
 import { describeRecipe, type MusicRecipeV1 } from "../../services/moodCatalog";
-import type { MusicGenerationPhase } from "../../services/musicGeneration";
+import { isActiveGenerationPhase, type MusicGenerationPhase } from "../../services/musicGeneration";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,9 @@ function recipeFeeling(recipe: MusicRecipeV1): string {
 
 function progressDetail(phase: MusicGenerationPhase): { label: string; value: number } | null {
   switch (phase) {
-    case "coding": return { label: "ChucKをコーディングしています", value: 34 };
+    case "composing":
+    case "source_validating":
+    case "repairing": return { label: "ChucKをコーディングしています", value: 34 };
     case "ready": return { label: "コードが完成しました。再生前に5秒検証してください", value: 66 };
     case "audio": return { label: "5秒の音声を検証しています", value: 82 };
     case "deferred": return { label: "集中終了後の音声検証を待っています", value: 66 };
@@ -126,7 +128,7 @@ export function MusicRecipePanel({
 
       {progress ? (
         <div className="alchemy-progress" aria-live="polite">
-          <div>{phase === "coding" || phase === "audio" ? <Spinner /> : <FlaskConicalIcon aria-hidden="true" />}<span>{progress.label}</span></div>
+          <div>{isActiveGenerationPhase(phase) || phase === "audio" ? <Spinner /> : <FlaskConicalIcon aria-hidden="true" />}<span>{progress.label}</span></div>
           <Progress value={progress.value} aria-label="音楽生成の進捗" />
         </div>
       ) : null}

@@ -405,10 +405,10 @@ export function createBrowserDevBridge(): DesktopBridge {
     async generateTrack(request: MusicGenerationRequest, onProgress) {
       const epoch = ++generationEpoch;
       onProgress?.({ phase: "started" });
-      onProgress?.({ phase: "coding" });
+      onProgress?.({ phase: "composing" });
       await Promise.resolve();
       if (epoch !== generationEpoch) throw new Error("music generation was cancelled");
-      onProgress?.({ phase: "validating" });
+      onProgress?.({ phase: "source_validating" });
       const recipe = "version" in request ? request as MusicRecipeV1 : null;
       const legacy = recipe ? null : request as LegacyMusicGenerationRequest;
       const draft: MusicDraft = {

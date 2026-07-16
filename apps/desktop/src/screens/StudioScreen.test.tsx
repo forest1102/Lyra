@@ -160,7 +160,7 @@ describe("Music Alchemyの生成フロー", () => {
   test("生成中は進捗を表示し、画面から生成を中止できる", async () => {
     const user = userEvent.setup();
     context.generateTrack.mockImplementation((_request, onProgress) => {
-      onProgress?.({ phase: "coding" });
+      onProgress?.({ phase: "composing" });
       return new Promise(() => undefined);
     });
     render(<StudioScreen />);
@@ -176,7 +176,7 @@ describe("Music Alchemyの生成フロー", () => {
     const user = userEvent.setup();
     let acknowledgeCancellation!: () => void;
     context.generateTrack.mockImplementation((_request, onProgress) => {
-      onProgress?.({ phase: "coding" });
+      onProgress?.({ phase: "source_validating" });
       return new Promise(() => undefined);
     });
     context.cancelMusicGeneration.mockReturnValue(new Promise<void>((resolve) => { acknowledgeCancellation = resolve; }));
@@ -195,7 +195,7 @@ describe("Music Alchemyの生成フロー", () => {
     let rejectOld!: (reason: unknown) => void;
     context.generateTrack
       .mockImplementationOnce((_request, onProgress) => {
-        onProgress?.({ phase: "coding" });
+        onProgress?.({ phase: "repairing" });
         return new Promise((_resolve, reject) => { rejectOld = reject; });
       })
       .mockResolvedValueOnce(createDraft());

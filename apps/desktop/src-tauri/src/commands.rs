@@ -610,9 +610,10 @@ pub async fn generate_music(
         .store(false, Ordering::Release);
     send_generation_progress(&on_progress, "started");
     let result = tauri::async_runtime::spawn_blocking(move || {
-        send_generation_progress(&on_progress, "coding");
         let state = app.state::<AppState>();
-        generate_music_blocking(request, &state)
+        generate_music_blocking(request, &state, |phase| {
+            send_generation_progress(&on_progress, phase)
+        })
     })
     .await;
     generation_active.store(false, Ordering::Release);
@@ -654,10 +655,14 @@ pub fn discard_music_draft(draft_id: String, state: State<'_, AppState>) -> Resu
     Ok(())
 }
 
-fn generate_music_blocking(
+fn generate_music_blocking<F>(
     request: GenerateMusicRequest,
     state: &AppState,
-) -> Result<GeneratedMusicDraft, String> {
+    mut on_progress: F,
+) -> Result<GeneratedMusicDraft, String>
+where
+    F: FnMut(&'static str),
+{
     let legacy_controls = if request.recipe.is_none() {
         let theme = request
             .theme
@@ -713,10 +718,13 @@ fn generate_music_blocking(
         .as_mut()
         .expect("generation service was initialized");
     let generated = match request.recipe {
-        Some(recipe) => service.generate_recipe(recipe, focus_active),
-        None => service.generate(
+        Some(recipe) => {
+            service.generate_recipe_with_progress(recipe, focus_active, &mut on_progress)
+        }
+        None => service.generate_with_progress(
             legacy_controls.expect("legacy controls validated"),
             focus_active,
+            &mut on_progress,
         ),
     };
     let draft = match generated {

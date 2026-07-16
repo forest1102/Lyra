@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode, type PropsWithChildren } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { BUILTIN_PRESETS, DEFAULT_APP_SETTINGS, type MusicDraft, type MusicPlaybackState, type MusicTrack, type Task, type TimerState } from "../domain";
+import { BUILTIN_PRESETS, DEFAULT_APP_SETTINGS, type MusicDraft, type MusicGenerationProgress, type MusicPlaybackState, type MusicTrack, type Task, type TimerState } from "../domain";
 import type { AudioEngine } from "../services/audioEngine";
 import { desktopBridge, type DesktopBridge } from "../services/desktop";
 import { LyraProvider, useLyra, type LyraState } from "./LyraContext";
@@ -572,17 +572,26 @@ test("ライブラリ試聴では集中用に明示選択した曲を変更し�
 
 test("中止後に到着した古い生成Draftを破棄する", async () => {
   const pending = deferred<MusicDraft>();
+  let emitProgress: ((progress: MusicGenerationProgress) => void) | undefined;
   const bridge = fakeBridge({
-    generateTrack: vi.fn(() => pending.promise),
+    generateTrack: vi.fn((_request, onProgress) => {
+      emitProgress = onProgress;
+      return pending.promise;
+    }),
     cancelMusicGeneration: vi.fn().mockResolvedValue(undefined),
   });
   render(<CaptureState />, { wrapper: wrapper(bridge) });
   await screen.findByText("captured-ready");
 
   let generation!: Promise<MusicDraft>;
-  act(() => { generation = capturedState.generateTrack({ version: 1, moods: [{ moodId: "scene-rainy-window", weight: 1 }] }); });
+  const onProgress = vi.fn();
+  act(() => { generation = capturedState.generateTrack({ version: 1, moods: [{ moodId: "scene-rainy-window", weight: 1 }] }, onProgress); });
   const rejection = expect(generation).rejects.toThrow("stale music generation result");
+  act(() => emitProgress?.({ phase: "composing" }));
+  expect(onProgress).toHaveBeenLastCalledWith({ phase: "composing" });
   await act(async () => { await capturedState.cancelMusicGeneration(); });
+  act(() => emitProgress?.({ phase: "source_validating" }));
+  expect(onProgress).toHaveBeenCalledTimes(1);
   await act(async () => { pending.resolve(musicDraft()); });
 
   await rejection;
