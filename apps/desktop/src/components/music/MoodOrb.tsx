@@ -247,22 +247,27 @@ export function MoodOrb({
     };
   }, [model, runId, settling]);
 
+  const weightFixed = model.stops.length === 1;
+
   return (
     <figure className="mood-orb" aria-label="選択したムードの融合">
       <canvas ref={canvasRef} className="mood-orb-canvas" width="480" height="480" aria-hidden="true" />
       <div className="mood-orb-points" aria-label="ムードの重みを調整">
-        {model.stops.map((stop, index) => (
-          <button
-            key={stop.moodId}
-            type="button"
-            className="mood-orb-point"
-            style={{ "--point-angle": `${(360 / model.stops.length) * index - 90}deg`, "--point-color": stop.color } as CSSProperties}
-            aria-label={`${stop.label} ${Math.round(stop.weight * 100)}%`}
-            title={`${stop.label} ${Math.round(stop.weight * 100)}%`}
-            disabled={editingDisabled}
-            onClick={() => onWeightChange?.(stop.moodId, Math.min(1, stop.weight + 0.1))}
-          />
-        ))}
+        {model.stops.map((stop, index) => {
+          const weightLabel = `${stop.label} ${Math.round(stop.weight * 100)}%${weightFixed ? "。ムードが1つのため重みは100%に固定されています" : ""}`;
+          return (
+            <button
+              key={stop.moodId}
+              type="button"
+              className="mood-orb-point"
+              style={{ "--point-angle": `${(360 / model.stops.length) * index - 90}deg`, "--point-color": stop.color } as CSSProperties}
+              aria-label={weightLabel}
+              title={weightLabel}
+              disabled={editingDisabled || weightFixed}
+              onClick={() => onWeightChange?.(stop.moodId, Math.min(1, stop.weight + 0.1))}
+            />
+          );
+        })}
       </div>
       <figcaption className="sr-only">
         {model.stops.map((stop) => `${stop.label} ${Math.round(stop.weight * 100)}%`).join("、")}

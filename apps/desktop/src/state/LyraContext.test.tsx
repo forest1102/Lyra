@@ -634,6 +634,37 @@ test("再生中の旧Draftは新しい生成を始める前に停止する", asy
   expect(capturedState.draft?.id).toBe(second.id);
 });
 
+test("再生停止待ちで中止した生成はbridgeへ送信しない", async () => {
+  const first = musicDraft({ id: "draft-a" });
+  const stop = deferred<void>();
+  const engine = new FakeAudioEngine();
+  engine.stop.mockImplementationOnce(async () => {
+    await stop.promise;
+    engine.emit({ status: "stopped", trackId: null, disabled: false });
+  });
+  const generateTrack = vi.fn().mockResolvedValueOnce(first);
+  const bridge = fakeBridge({
+    generateTrack,
+    cancelMusicGeneration: vi.fn().mockResolvedValue(undefined),
+  });
+  render(<CaptureState />, { wrapper: wrapper(bridge, engine) });
+  await screen.findByText("captured-ready");
+  await act(async () => { await capturedState.generateTrack({ version: 1, moods: [{ moodId: "scene-rainy-window", weight: 1 }] }); });
+  act(() => engine.emit({ status: "playing", trackId: first.id, disabled: false }));
+
+  let generation!: Promise<MusicDraft>;
+  act(() => { generation = capturedState.generateTrack({ version: 1, moods: [{ moodId: "time-midnight", weight: 1 }] }); });
+  await waitFor(() => expect(engine.stop).toHaveBeenCalledOnce());
+  const rejection = expect(generation).rejects.toThrow("stale music generation result");
+  await act(async () => { await capturedState.cancelMusicGeneration(); });
+  await act(async () => { stop.resolve(); });
+
+  await rejection;
+  expect(generateTrack).toHaveBeenCalledOnce();
+  expect(capturedState.draft?.id).toBe(first.id);
+  expect(capturedState.musicPlayback).toMatchObject({ status: "stopped", trackId: null });
+});
+
 test("再生中のDraftは保存前に停止して孤立音声を残さない", async () => {
   const pending = musicDraft({ audioValidation: "passed" });
   const engine = new FakeAudioEngine();

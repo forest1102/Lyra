@@ -149,6 +149,24 @@ describe("Music Alchemyのムード選択", () => {
     expect(screen.getByRole("button", { name: "ベルベットを削除" })).toBeDisabled();
     expect(screen.getByRole("note", { name: "ベルベットを削除できません: 最後のムードです" })).toHaveAttribute("tabindex", "0");
   });
+
+  test("ムードが1件のとき重みSliderを100%固定と説明し、2件で再有効化する", async () => {
+    const user = userEvent.setup();
+    render(<StudioScreen />);
+
+    await user.click(screen.getByRole("button", { name: "雨の窓辺を削除" }));
+    await user.click(screen.getByRole("button", { name: "陽だまりを削除" }));
+
+    const fixedSlider = screen.getByRole("slider", { name: /ベルベットの重み.*ムードが1つのため重みは100%に固定されています/ });
+    expect(fixedSlider).toHaveAttribute("aria-valuenow", "100");
+    expect(fixedSlider).toHaveAttribute("aria-valuemax", "100");
+    expect(fixedSlider).toHaveAttribute("data-disabled");
+
+    await user.click(screen.getByRole("button", { name: "静かな書庫" }));
+    const adjustableSlider = screen.getByRole("slider", { name: "ベルベットの重み" });
+    expect(adjustableSlider).toHaveAttribute("aria-valuemax", "100");
+    expect(adjustableSlider).not.toHaveAttribute("data-disabled");
+  });
 });
 
 describe("Music Alchemyの生成フロー", () => {

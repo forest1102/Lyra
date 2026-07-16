@@ -346,6 +346,7 @@ export function LyraProvider({
     async generateTrack(request, onProgress) {
       const revision = ++generationRevision.current;
       if (draft && musicPlayback.trackId === draft.id) await audioEngine.stop();
+      if (revision !== generationRevision.current) throw new Error("stale music generation result was discarded");
       const guardedProgress = onProgress
         ? (progress: MusicGenerationProgress) => {
             if (revision === generationRevision.current) onProgress(progress);

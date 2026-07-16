@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createMusicRecipe, normalizeMusicRecipe } from "../../services/moodCatalog";
@@ -86,10 +87,14 @@ describe("createOrbModel", () => {
     const context = createCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
 
-    render(createElement(MoodOrb, { recipe: createMusicRecipe(["scene-rainy-window"]), phase: "composing" }));
+    const view = render(createElement(MoodOrb, { recipe: createMusicRecipe(["scene-rainy-window"]), phase: "composing" }));
 
     expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(context.fillText).toHaveBeenCalledWith("雨の窓辺", expect.any(Number), expect.any(Number));
+    expect(screen.getByRole("button", { name: /雨の窓辺 100%.*ムードが1つのため重みは100%に固定されています/ })).toBeDisabled();
+
+    view.rerender(createElement(MoodOrb, { recipe: createMusicRecipe(["scene-rainy-window", "time-midnight"]), phase: "composing" }));
+    expect(screen.getByRole("button", { name: "雨の窓辺 50%" })).toBeEnabled();
   });
 
   test("keeps the ready settle active for 600ms across rerenders using RAF timestamps", () => {

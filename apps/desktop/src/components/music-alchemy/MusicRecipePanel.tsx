@@ -35,7 +35,7 @@ function MoodWeightSlider({ label, value, disabled, onValueChange }: { label: st
     <Slider
       aria-label={label}
       min={1}
-      max={99}
+      max={100}
       step={1}
       value={[value]}
       disabled={disabled}
@@ -134,6 +134,7 @@ export function MusicRecipePanel({
         <div className="alchemy-weights">
           {selections.map(({ mood, moodId, weight }) => {
             const percent = Math.round(weight * 100);
+            const weightFixed = selections.length === 1;
             const removeDisabled = editingDisabled || selections.length === 1;
             const removeReason = editingDisabled ? "生成中は編集できません" : selections.length === 1 ? "最後のムードです" : null;
             return (
@@ -166,9 +167,9 @@ export function MusicRecipePanel({
                   </div>
                 </div>
                 <MoodWeightSlider
-                  label={`${mood.label}の重み`}
+                  label={weightFixed ? `${mood.label}の重み。ムードが1つのため重みは100%に固定されています` : `${mood.label}の重み`}
                   value={percent}
-                  disabled={editingDisabled}
+                  disabled={editingDisabled || weightFixed}
                   onValueChange={(value) => onWeightChange(moodId, value / 100)}
                 />
               </div>
