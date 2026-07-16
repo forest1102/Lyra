@@ -67,6 +67,15 @@ export function normalizeMusicRecipe(recipe: MusicRecipeV1): MusicRecipeV1 {
   return { version: 1, moods };
 }
 
+export function removeMoodFromRecipe(recipe: MusicRecipeV1, moodId: string): MusicRecipeV1 {
+  const current = normalizeMusicRecipe(recipe);
+  if (current.moods.length === 1 || !current.moods.some((selection) => selection.moodId === moodId)) return current;
+  return normalizeMusicRecipe({
+    version: 1,
+    moods: current.moods.filter((selection) => selection.moodId !== moodId),
+  });
+}
+
 export function describeRecipe(recipe: MusicRecipeV1): Array<MoodSelection & { mood: MoodCatalogItem }> {
   return normalizeMusicRecipe(recipe).moods.map((selection) => ({
     ...selection,

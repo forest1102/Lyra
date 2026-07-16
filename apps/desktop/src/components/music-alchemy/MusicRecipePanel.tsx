@@ -1,14 +1,14 @@
-import { ArrowRightIcon, FlaskConicalIcon, PlayIcon, SaveIcon, SparklesIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { ArrowRightIcon, FlaskConicalIcon, PlayIcon, SaveIcon, SparklesIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
 import type { MusicDraft } from "../../domain";
 import { describeRecipe, type MusicRecipeV1 } from "../../services/moodCatalog";
-import { isActiveGenerationPhase, type MusicGenerationPhase } from "../../services/musicGeneration";
+import type { MusicGenerationPhase } from "../../services/musicGeneration";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface MusicRecipePanelProps {
   recipe: MusicRecipeV1;
@@ -19,7 +19,10 @@ interface MusicRecipePanelProps {
   generating: boolean;
   cancelling: boolean;
   validating: boolean;
+  editingDisabled: boolean;
+  repairReceived: boolean;
   onWeightChange(moodId: string, weight: number): void;
+  onRemoveMood(moodId: string): void;
   onGenerate(): void;
   onCancel(): void;
   onPreview(draft: MusicDraft): void;
@@ -27,7 +30,7 @@ interface MusicRecipePanelProps {
   onDiscard(): void;
 }
 
-function MoodWeightSlider({ label, value, onValueChange }: { label: string; value: number; onValueChange(value: number): void }) {
+function MoodWeightSlider({ label, value, disabled, onValueChange }: { label: string; value: number; disabled: boolean; onValueChange(value: number): void }) {
   return (
     <Slider
       aria-label={label}
@@ -35,6 +38,7 @@ function MoodWeightSlider({ label, value, onValueChange }: { label: string; valu
       max={99}
       step={1}
       value={[value]}
+      disabled={disabled}
       onValueChange={(next) => onValueChange(next[0])}
     />
   );
@@ -52,16 +56,32 @@ function recipeFeeling(recipe: MusicRecipeV1): string {
   return `${opening}、${texture}と${movement}`;
 }
 
-function progressDetail(phase: MusicGenerationPhase): { label: string; value: number } | null {
+interface StatusRow {
+  label: string;
+  active: boolean;
+}
+
+function generationStatusRows(phase: MusicGenerationPhase, repairReceived: boolean): StatusRow[] {
   switch (phase) {
-    case "composing":
-    case "source_validating":
-    case "repairing": return { label: "ChucKをコーディングしています", value: 34 };
-    case "ready": return { label: "コードが完成しました。再生前に5秒検証してください", value: 66 };
-    case "audio": return { label: "5秒の音声を検証しています", value: 82 };
-    case "deferred": return { label: "集中終了後の音声検証を待っています", value: 66 };
-    case "completed": return { label: "音声検証が完了しました", value: 100 };
-    default: return null;
+    case "composing": return [{ label: "構成を組み立てています", active: true }];
+    case "source_validating": return [
+      { label: "構成を組み立てました", active: false },
+      ...(repairReceived ? [{ label: "コードを修復しました", active: false }] : []),
+      { label: "ChucKコードを検証しています", active: true },
+    ];
+    case "repairing": return [
+      { label: "構成を組み立てました", active: false },
+      { label: "ChucKコードを検証しました", active: false },
+      { label: "コードを修復しています", active: true },
+    ];
+    case "ready": return [
+      ...(repairReceived ? [{ label: "コードを修復しました", active: false }] : []),
+      { label: "コードが完成しました。再生前に5秒検証してください", active: false },
+    ];
+    case "audio": return [{ label: "5秒の音声を検証しています", active: true }];
+    case "deferred": return [{ label: "集中終了後の音声検証を待っています", active: false }];
+    case "completed": return [{ label: "音声検証が完了しました", active: false }];
+    default: return [];
   }
 }
 
@@ -74,7 +94,10 @@ export function MusicRecipePanel({
   generating,
   cancelling,
   validating,
+  editingDisabled,
+  repairReceived,
   onWeightChange,
+  onRemoveMood,
   onGenerate,
   onCancel,
   onPreview,
@@ -82,7 +105,7 @@ export function MusicRecipePanel({
   onDiscard,
 }: MusicRecipePanelProps) {
   const selections = describeRecipe(recipe);
-  const progress = progressDetail(phase);
+  const statuses = generationStatusRows(phase, repairReceived);
   const deferred = draft?.audioValidation === "deferred_until_focus_ends";
   const validated = draft?.audioValidation === "passed";
 
@@ -107,29 +130,61 @@ export function MusicRecipePanel({
         <p>{draft?.description ?? "選んだ風景・質感・温度を、集中を妨げないChucKの響きへ変換します。"}</p>
       </div>
 
-      <div className="alchemy-weights">
-        {selections.map(({ mood, moodId, weight }) => {
-          const percent = Math.round(weight * 100);
-          return (
-            <div className="alchemy-weight" key={moodId}>
-              <div className="alchemy-weight-meta">
-                <span><i style={{ "--mood-color": mood.color } as React.CSSProperties} />{mood.label}</span>
-                <strong>{percent}%</strong>
+      <TooltipProvider>
+        <div className="alchemy-weights">
+          {selections.map(({ mood, moodId, weight }) => {
+            const percent = Math.round(weight * 100);
+            const removeDisabled = editingDisabled || selections.length === 1;
+            const removeReason = editingDisabled ? "生成中は編集できません" : selections.length === 1 ? "最後のムードです" : null;
+            return (
+              <div className="alchemy-weight" key={moodId}>
+                <div className="alchemy-weight-meta">
+                  <span><i style={{ "--mood-color": mood.color } as React.CSSProperties} />{mood.label}</span>
+                  <div>
+                    <strong>{percent}%</strong>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role={removeReason ? "note" : undefined}
+                          tabIndex={removeReason ? 0 : undefined}
+                          aria-label={removeReason ? `${mood.label}を削除できません: ${removeReason}` : undefined}
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled={removeDisabled}
+                            aria-label={`${mood.label}を削除`}
+                            onClick={() => onRemoveMood(moodId)}
+                          >
+                            <XIcon data-icon="inline-start" />
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>{removeReason ?? `${mood.label}を削除`}</TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+                <MoodWeightSlider
+                  label={`${mood.label}の重み`}
+                  value={percent}
+                  disabled={editingDisabled}
+                  onValueChange={(value) => onWeightChange(moodId, value / 100)}
+                />
               </div>
-              <MoodWeightSlider
-                label={`${mood.label}の重み`}
-                value={percent}
-                onValueChange={(value) => onWeightChange(moodId, value / 100)}
-              />
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </TooltipProvider>
 
-      {progress ? (
-        <div className="alchemy-progress" aria-live="polite">
-          <div>{isActiveGenerationPhase(phase) || phase === "audio" ? <Spinner /> : <FlaskConicalIcon aria-hidden="true" />}<span>{progress.label}</span></div>
-          <Progress value={progress.value} aria-label="音楽生成の進捗" />
+      {statuses.length > 0 ? (
+        <div className="alchemy-status" aria-live="polite" aria-atomic="true">
+          {statuses.map((status) => (
+            <div key={status.label} data-active={status.active || undefined}>
+              {status.active ? <Spinner /> : <i aria-hidden="true" />}
+              <span>{status.label}</span>
+            </div>
+          ))}
         </div>
       ) : null}
 

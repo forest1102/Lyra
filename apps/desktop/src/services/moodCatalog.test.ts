@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MOOD_CATALOG, createMusicRecipe, normalizeMusicRecipe } from "./moodCatalog";
+import { MOOD_CATALOG, createMusicRecipe, normalizeMusicRecipe, removeMoodFromRecipe } from "./moodCatalog";
 
 describe("shared mood catalog", () => {
   test("contains five categories with six unique moods each", () => {
@@ -47,6 +47,25 @@ describe("shared mood catalog", () => {
       { moodId: "scene-rainy-window", weight: 0.8 },
       { moodId: "time-midnight", weight: 0.2 },
     ]);
+  });
+
+  test("removes a mood while preserving the remaining weight ratio", () => {
+    const recipe = normalizeMusicRecipe({ version: 1, moods: [
+      { moodId: "scene-rainy-window", weight: 0.6 },
+      { moodId: "time-midnight", weight: 0.3 },
+      { moodId: "texture-velvet", weight: 0.1 },
+    ] });
+
+    expect(removeMoodFromRecipe(recipe, "time-midnight").moods).toEqual([
+      { moodId: "scene-rainy-window", weight: 0.857142857143 },
+      { moodId: "texture-velvet", weight: 0.142857142857 },
+    ]);
+  });
+
+  test("does not remove the last mood", () => {
+    const recipe = createMusicRecipe(["scene-rainy-window"]);
+
+    expect(removeMoodFromRecipe(recipe, "scene-rainy-window")).toEqual(recipe);
   });
 });
 import { existsSync } from "node:fs";

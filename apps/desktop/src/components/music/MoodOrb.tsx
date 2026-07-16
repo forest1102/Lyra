@@ -1,49 +1,99 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { MoodVectorKey, MusicRecipeV1 } from "../../services/moodCatalog";
 import { describeRecipe } from "../../services/moodCatalog";
+import { isActiveGenerationPhase, type MusicGenerationPhase } from "../../services/musicGeneration";
 
 interface OrbStop {
   moodId: string;
   label: string;
   color: string;
   weight: number;
+  particleCount: number;
+  orbitRadius: number;
 }
 
 export interface OrbModel {
   stops: OrbStop[];
   vectors: Record<MoodVectorKey, number>;
   motion: number;
+  phase: MusicGenerationPhase;
+  speed: number;
+  convergence: number;
+  reconstructive: boolean;
+  cycleMs: number;
+  settleDurationMs: number;
 }
 
 const VECTOR_KEYS: MoodVectorKey[] = ["brightness", "density", "motion", "warmth", "space", "pulse", "melody", "organic"];
+const CYCLE_MS = 2_400;
+const SETTLE_DURATION_MS = 600;
 
-export function createOrbModel(recipe: MusicRecipeV1 | null): OrbModel {
-  if (!recipe) {
-    return {
-      stops: [
-        { moodId: "fallback-night", label: "静かな夜", color: "#52688b", weight: 0.5 },
-        { moodId: "fallback-warmth", label: "穏やかな灯り", color: "#ba8b61", weight: 0.5 },
-      ],
-      vectors: Object.fromEntries(VECTOR_KEYS.map((key) => [key, 0])) as Record<MoodVectorKey, number>,
-      motion: 0,
-    };
-  }
+const PHASE_DYNAMICS: Record<MusicGenerationPhase, Pick<OrbModel, "speed" | "convergence" | "reconstructive">> = {
+  idle: { speed: 1, convergence: 0, reconstructive: false },
+  composing: { speed: 1.7, convergence: 0.38, reconstructive: false },
+  source_validating: { speed: 2.3, convergence: 0.82, reconstructive: false },
+  repairing: { speed: 3.4, convergence: 0.68, reconstructive: true },
+  ready: { speed: 1, convergence: 0, reconstructive: false },
+  audio: { speed: 1, convergence: 0, reconstructive: false },
+  deferred: { speed: 1, convergence: 0, reconstructive: false },
+  completed: { speed: 1, convergence: 0, reconstructive: false },
+  failed: { speed: 1, convergence: 0, reconstructive: false },
+};
 
-  const selections = describeRecipe(recipe);
-  const vectors = Object.fromEntries(VECTOR_KEYS.map((key) => [
-    key,
-    selections.reduce((sum, selection) => sum + selection.mood.vectors[key] * selection.weight, 0),
-  ])) as Record<MoodVectorKey, number>;
+export function createOrbModel(recipe: MusicRecipeV1 | null, phase: MusicGenerationPhase = "idle"): OrbModel {
+  const fallbackStops = [
+    { moodId: "fallback-night", label: "静かな夜", color: "#52688b", weight: 0.5 },
+    { moodId: "fallback-warmth", label: "穏やかな灯り", color: "#ba8b61", weight: 0.5 },
+  ];
+  const described = recipe ? describeRecipe(recipe) : null;
+  const selections = described
+    ? described.map(({ mood, moodId, weight }) => ({ moodId, weight, label: mood.label, color: mood.color }))
+    : fallbackStops;
+  const vectors = described
+    ? Object.fromEntries(VECTOR_KEYS.map((key) => [
+        key,
+        described.reduce((sum, selection) => sum + selection.mood.vectors[key] * selection.weight, 0),
+      ])) as Record<MoodVectorKey, number>
+    : Object.fromEntries(VECTOR_KEYS.map((key) => [key, 0])) as Record<MoodVectorKey, number>;
+  const particleTotal = 36 + Math.round(vectors.density * 28);
+  const dynamics = PHASE_DYNAMICS[phase];
+
   return {
-    stops: selections.map(({ mood, moodId, weight }) => ({ moodId, weight, label: mood.label, color: mood.color })),
+    stops: selections.map((stop) => ({
+      ...stop,
+      particleCount: Math.max(4, Math.round(particleTotal * stop.weight)),
+      orbitRadius: 0.2 + (1 - stop.weight) * 0.3,
+    })),
     vectors,
     motion: vectors.motion,
+    phase,
+    ...dynamics,
+    cycleMs: CYCLE_MS,
+    settleDurationMs: phase === "ready" ? SETTLE_DURATION_MS : 0,
   };
 }
 
-function drawOrb(context: CanvasRenderingContext2D, size: number, model: OrbModel, elapsed: number, still: boolean) {
+export function createOrbTransition(phase: MusicGenerationPhase, previousPhase: MusicGenerationPhase) {
+  const settling = phase === "ready" && isActiveGenerationPhase(previousPhase);
+  return { settling, displayPhase: settling ? previousPhase : phase };
+}
+
+function drawOrb(
+  context: CanvasRenderingContext2D,
+  size: number,
+  model: OrbModel,
+  elapsed: number,
+  staticMode: boolean,
+  activity = 1,
+) {
   const center = size / 2;
   const radius = size * 0.39;
+  const activeIntensity = isActiveGenerationPhase(model.phase) ? activity : 0;
+  const cycle = staticMode ? 0 : (elapsed % model.cycleMs) / model.cycleMs;
+  const dissolve = Math.pow(Math.sin(cycle * Math.PI), 4) * activeIntensity;
+  const speed = 1 + (model.speed - 1) * activity;
+  const convergence = model.convergence * activity;
+
   context.clearRect(0, 0, size, size);
   context.save();
   context.beginPath();
@@ -53,10 +103,11 @@ function drawOrb(context: CanvasRenderingContext2D, size: number, model: OrbMode
   context.fillRect(0, 0, size, size);
 
   model.stops.forEach((stop, index) => {
-    const phase = still ? index * 2.2 : elapsed * (0.00008 + model.motion * 0.00014) + index * 2.2;
-    const x = center + Math.cos(phase) * radius * 0.34;
-    const y = center + Math.sin(phase * 0.87) * radius * 0.31;
-    const gradient = context.createRadialGradient(x, y, 0, x, y, radius * (0.78 + stop.weight * 0.45));
+    const phase = staticMode ? index * 2.2 : elapsed * 0.00008 * speed * (0.45 + model.motion) + index * 2.2;
+    const colorRadius = radius * (0.74 + stop.weight * 0.5);
+    const x = center + Math.cos(phase) * radius * stop.orbitRadius;
+    const y = center + Math.sin(phase * 0.87) * radius * stop.orbitRadius;
+    const gradient = context.createRadialGradient(x, y, 0, x, y, colorRadius);
     gradient.addColorStop(0, `${stop.color}e8`);
     gradient.addColorStop(0.48, `${stop.color}70`);
     gradient.addColorStop(1, `${stop.color}00`);
@@ -65,20 +116,54 @@ function drawOrb(context: CanvasRenderingContext2D, size: number, model: OrbMode
     context.fillRect(0, 0, size, size);
   });
 
-  context.globalCompositeOperation = "screen";
-  const particleCount = still ? 22 : 32 + Math.round(model.vectors.density * 24);
-  for (let index = 0; index < particleCount; index += 1) {
-    const angle = index * 2.399 + (still ? 0 : elapsed * 0.00008 * (0.2 + model.motion));
-    const distance = radius * (0.12 + ((index * 37) % 83) / 100);
-    const x = center + Math.cos(angle) * distance;
-    const y = center + Math.sin(angle) * distance;
-    const alpha = 0.14 + ((index * 17) % 41) / 100;
-    context.fillStyle = `rgba(238,233,220,${alpha})`;
-    context.beginPath();
-    context.arc(x, y, index % 7 === 0 ? 1.6 : 0.8, 0, Math.PI * 2);
-    context.fill();
+  if (staticMode) {
+    model.stops.forEach((stop, index) => {
+      const bandRadius = radius * (0.2 + ((index + 1) / (model.stops.length + 1)) * 0.62);
+      context.globalCompositeOperation = "screen";
+      context.globalAlpha = 0.34 + stop.weight * 0.4;
+      context.strokeStyle = stop.color;
+      context.lineWidth = 5 + stop.weight * 12;
+      context.beginPath();
+      context.arc(center, center, bandRadius, 0, Math.PI * 2);
+      context.stroke();
+      context.globalAlpha = 0.9;
+      context.fillStyle = "#eee9dc";
+      context.font = "12px sans-serif";
+      context.textAlign = "center";
+      context.fillText(stop.label, center, center - bandRadius + 4);
+    });
   }
+
+  context.globalCompositeOperation = "screen";
+  model.stops.forEach((stop, stopIndex) => {
+    const stopPhase = stopIndex * 2.2 + elapsed * 0.00008 * speed;
+    for (let index = 0; index < stop.particleCount; index += 1) {
+      const seed = index / stop.particleCount;
+      const angle = stopPhase + index * 2.399 + (model.reconstructive ? Math.sin(elapsed * 0.006 + index) * 0.25 * activity : 0);
+      const baseDistance = radius * (stop.orbitRadius + seed * 0.44);
+      const inward = dissolve * (0.62 + convergence * 0.38);
+      const distance = staticMode ? baseDistance : baseDistance * (1 - inward);
+      const x = center + Math.cos(angle) * distance;
+      const y = center + Math.sin(angle) * distance;
+      context.globalAlpha = 0.2 + ((index * 17) % 47) / 100 + dissolve * 0.22;
+      context.fillStyle = stop.color;
+      context.beginPath();
+      context.arc(x, y, index % 7 === 0 ? 1.8 : 0.9, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    if (!staticMode) {
+      const labelDistance = radius * stop.orbitRadius * (1 - dissolve * (0.7 + convergence * 0.2));
+      context.globalAlpha = Math.max(0.08, 1 - dissolve * 1.12);
+      context.fillStyle = "#eee9dc";
+      context.font = "12px sans-serif";
+      context.textAlign = "center";
+      context.fillText(stop.label, center + Math.cos(stopPhase) * labelDistance, center + Math.sin(stopPhase) * labelDistance);
+    }
+  });
   context.restore();
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = "source-over";
 
   context.strokeStyle = "rgba(238,233,220,.22)";
   context.lineWidth = 1;
@@ -93,13 +178,24 @@ function drawOrb(context: CanvasRenderingContext2D, size: number, model: OrbMode
 
 export function MoodOrb({
   recipe,
+  phase = "idle",
+  editingDisabled = false,
   onWeightChange,
 }: {
   recipe: MusicRecipeV1 | null;
+  phase?: MusicGenerationPhase;
+  editingDisabled?: boolean;
   onWeightChange?: (moodId: string, weight: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const model = useMemo(() => createOrbModel(recipe), [recipe]);
+  const previousPhase = useRef<MusicGenerationPhase>(phase);
+  const recipeSignature = recipe?.moods.map(({ moodId, weight }) => `${moodId}:${weight}`).join("|") ?? "fallback";
+  const { settling, displayPhase } = createOrbTransition(phase, previousPhase.current);
+  const model = useMemo(() => createOrbModel(recipe, displayPhase), [displayPhase, recipeSignature]);
+
+  useEffect(() => {
+    previousPhase.current = phase;
+  }, [phase]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -113,13 +209,32 @@ export function MoodOrb({
     canvas.height = size * scale;
     context.scale(scale, scale);
     let frame = 0;
+    let settleStartedAt: number | null = null;
+
     const render = (elapsed: number) => {
-      drawOrb(context, size, model, elapsed, media.matches);
-      if (!media.matches) frame = window.requestAnimationFrame(render);
+      if (settling && settleStartedAt === null) settleStartedAt = elapsed;
+      const settleElapsed = settling ? elapsed - (settleStartedAt ?? elapsed) : 0;
+      const activity = settling ? Math.max(0, 1 - settleElapsed / SETTLE_DURATION_MS) : 1;
+      drawOrb(context, size, model, elapsed, false, activity);
+      frame = window.requestAnimationFrame(render);
     };
-    render(0);
-    return () => window.cancelAnimationFrame(frame);
-  }, [model]);
+    const renderForPreference = () => {
+      window.cancelAnimationFrame(frame);
+      frame = 0;
+      settleStartedAt = null;
+      if (media.matches) {
+        drawOrb(context, size, model, 0, true);
+      } else {
+        render(0);
+      }
+    };
+    renderForPreference();
+    media.addEventListener("change", renderForPreference);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      media.removeEventListener("change", renderForPreference);
+    };
+  }, [model, settling]);
 
   return (
     <figure className="mood-orb" aria-label="選択したムードの融合">
@@ -133,6 +248,7 @@ export function MoodOrb({
             style={{ "--point-angle": `${(360 / model.stops.length) * index - 90}deg`, "--point-color": stop.color } as CSSProperties}
             aria-label={`${stop.label} ${Math.round(stop.weight * 100)}%`}
             title={`${stop.label} ${Math.round(stop.weight * 100)}%`}
+            disabled={editingDisabled}
             onClick={() => onWeightChange?.(stop.moodId, Math.min(1, stop.weight + 0.1))}
           />
         ))}

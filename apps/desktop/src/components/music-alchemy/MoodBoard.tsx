@@ -5,11 +5,12 @@ import { MOOD_CATALOG, type MoodCatalogCategory, type MusicRecipeV1 } from "../.
 interface MoodBoardProps {
   activeCategory: MoodCatalogCategory["id"];
   recipe: MusicRecipeV1;
+  editingDisabled: boolean;
   onCategoryChange(category: MoodCatalogCategory["id"]): void;
   onMoodToggle(moodId: string): void;
 }
 
-export function MoodBoard({ activeCategory, recipe, onCategoryChange, onMoodToggle }: MoodBoardProps) {
+export function MoodBoard({ activeCategory, recipe, editingDisabled, onCategoryChange, onMoodToggle }: MoodBoardProps) {
   const category = MOOD_CATALOG.categories.find((candidate) => candidate.id === activeCategory) ?? MOOD_CATALOG.categories[0];
   const selected = new Set(recipe.moods.map((mood) => mood.moodId));
 
@@ -26,6 +27,7 @@ export function MoodBoard({ activeCategory, recipe, onCategoryChange, onMoodTogg
         size="sm"
         aria-label="ムードの分類"
         className="alchemy-categories"
+        disabled={editingDisabled}
         onValueChange={(value) => {
           if (value) onCategoryChange(value as MoodCatalogCategory["id"]);
         }}
@@ -46,6 +48,7 @@ export function MoodBoard({ activeCategory, recipe, onCategoryChange, onMoodTogg
               className="alchemy-mood"
               aria-label={mood.label}
               aria-pressed={isSelected}
+              disabled={editingDisabled}
               style={{ "--mood-color": mood.color } as React.CSSProperties}
               onClick={() => onMoodToggle(mood.id)}
             >

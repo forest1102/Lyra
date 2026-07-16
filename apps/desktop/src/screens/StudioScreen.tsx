@@ -9,6 +9,7 @@ import {
   MOOD_BY_ID,
   createMusicRecipe,
   normalizeMusicRecipe,
+  removeMoodFromRecipe,
   type MusicRecipeV1,
 } from "../services/moodCatalog";
 import { isActiveGenerationPhase, MusicGenerationPipelineError, runMusicGeneration, type MusicGenerationPhase } from "../services/musicGeneration";
@@ -53,10 +54,12 @@ export function StudioScreen() {
   const [recipe, setRecipe] = useState<MusicRecipeV1>(() => createMusicRecipe(DEFAULT_MOODS));
   const [phase, setPhase] = useState<MusicGenerationPhase>("idle");
   const [cancelling, setCancelling] = useState(false);
+  const [repairReceived, setRepairReceived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generationRun = useRef(0);
   const generating = isActiveGenerationPhase(phase);
   const validating = phase === "audio";
+  const editingDisabled = generating || cancelling;
   const draftPlaying = Boolean(draft && musicPlayback.status === "playing" && musicPlayback.trackId === draft.id);
 
   const toggleMood = (moodId: string) => {
@@ -79,12 +82,16 @@ export function StudioScreen() {
   const generate = () => {
     const run = ++generationRun.current;
     setError(null);
+    setPhase("composing");
+    setRepairReceived(false);
     const normalized = normalizeMusicRecipe(recipe);
     void runMusicGeneration({
       request: normalized,
       generate: generateTrack,
       onPhase: (nextPhase) => {
-        if (run === generationRun.current) setPhase(nextPhase);
+        if (run !== generationRun.current) return;
+        if (nextPhase === "repairing") setRepairReceived(true);
+        setPhase(nextPhase);
       },
     }).catch((reason: unknown) => {
       if (run !== generationRun.current) return;
@@ -102,6 +109,7 @@ export function StudioScreen() {
         if (cancelledRun !== generationRun.current) return;
         setCancelling(false);
         setPhase("idle");
+        setRepairReceived(false);
       })
       .catch((reason: unknown) => {
         if (cancelledRun !== generationRun.current) return;
@@ -149,6 +157,7 @@ export function StudioScreen() {
         <MoodBoard
           activeCategory={activeCategory}
           recipe={recipe}
+          editingDisabled={editingDisabled}
           onCategoryChange={setActiveCategory}
           onMoodToggle={toggleMood}
         />
@@ -164,6 +173,8 @@ export function StudioScreen() {
           </div>
           <MoodOrb
             recipe={recipe}
+            phase={phase}
+            editingDisabled={editingDisabled}
             onWeightChange={(moodId, weight) => setRecipe((current) => rebalanceRecipeWeight(current, moodId, weight))}
           />
           <div className="alchemy-static-bands" aria-label="選択中のムード">
@@ -188,6 +199,9 @@ export function StudioScreen() {
           generating={generating}
           cancelling={cancelling}
           validating={validating}
+          editingDisabled={editingDisabled}
+          repairReceived={repairReceived}
+          onRemoveMood={(moodId) => setRecipe((current) => removeMoodFromRecipe(current, moodId))}
         />
       </div>
     </Screen>
