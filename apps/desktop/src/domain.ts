@@ -213,8 +213,8 @@ export interface DeleteMusicTracksResult {
   cleanupWarnings?: string[];
 }
 
-export interface AppSettingsV1 {
-  version: 1;
+export interface AppSettingsV2 {
+  version: 2;
   closeBehavior: "hide" | "quit";
   launchAtLogin: boolean;
   defaultPresetId: string;
@@ -225,14 +225,14 @@ export interface AppSettingsV1 {
   crossfadeSeconds: number;
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettingsV1 = {
-  version: 1,
+export const DEFAULT_APP_SETTINGS: AppSettingsV2 = {
+  version: 2,
   closeBehavior: "hide",
   launchAtLogin: false,
   defaultPresetId: "standard",
   autoStartBreak: false,
   notificationsEnabled: true,
-  masterVolume: 1,
+  masterVolume: 1.5,
   playSelectedTrackOnFocus: true,
   crossfadeSeconds: 2,
 };

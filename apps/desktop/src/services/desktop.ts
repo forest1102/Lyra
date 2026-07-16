@@ -2,7 +2,7 @@ import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddTaskV2,
-  AppSettingsV1,
+  AppSettingsV2,
   DeleteMusicTracksResult,
   DraftValidationReport,
   MusicDraft,
@@ -62,8 +62,8 @@ export interface DesktopBridge {
   listTracks(query?: MusicTrackListQuery): Promise<MusicTrack[]>;
   renameTrack(id: string, title: string): Promise<MusicTrack>;
   deleteTracks(ids: string[]): Promise<DeleteMusicTracksResult>;
-  getSettings(): Promise<AppSettingsV1>;
-  saveSettings(settings: AppSettingsV1): Promise<AppSettingsV1>;
+  getSettings(): Promise<AppSettingsV2>;
+  saveSettings(settings: AppSettingsV2): Promise<AppSettingsV2>;
   runtimeDiagnostics(): Promise<RuntimeDiagnostic[]>;
   openDataDirectory(): Promise<void>;
   generateTrack(request: MusicGenerationRequest, onProgress?: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
@@ -100,8 +100,8 @@ export const desktopBridge: DesktopBridge = {
   listTracks: (query) => invoke<MusicTrack[]>("list_music_tracks", query === undefined ? undefined : { query }),
   renameTrack: (id, title) => invoke<MusicTrack>("rename_music_track", { id, title }),
   deleteTracks: (ids) => invoke<DeleteMusicTracksResult>("delete_music_tracks", { ids }),
-  getSettings: () => invoke<AppSettingsV1>("get_app_settings"),
-  saveSettings: (settings) => invoke<AppSettingsV1>("save_app_settings", { settings }),
+  getSettings: () => invoke<AppSettingsV2>("get_app_settings"),
+  saveSettings: (settings) => invoke<AppSettingsV2>("save_app_settings", { settings }),
   runtimeDiagnostics: () => invoke<RuntimeDiagnostic[]>("runtime_diagnostics"),
   openDataDirectory: () => invoke<void>("open_data_directory"),
   generateTrack: (request, onProgress) => {

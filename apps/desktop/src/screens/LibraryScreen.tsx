@@ -466,11 +466,12 @@ export function LibraryScreen() {
               <Button type="button" variant="ghost" size="icon" aria-label="停止" onClick={() => { setPausedByPlayer(false); void stopMusic(); }}><SquareIcon /></Button>
             </div>
             <div className="library-volume">
-              <span>音量</span>
+              <span>音量（標準 150%）</span>
               <Slider
                 aria-label="マスター音量"
                 min={0}
-                max={100}
+                max={200}
+                step={1}
                 value={[Math.round(settings.masterVolume * 100)]}
                 onValueCommit={([value]) => void saveSettings({ ...settings, masterVolume: value / 100 })}
               />

@@ -188,13 +188,13 @@ describe("デスクトップIPC", () => {
 
   test("設定・診断・プリセット削除をデスクトップへ委譲する", async () => {
     const settings = {
-      version: 1 as const,
+      version: 2 as const,
       closeBehavior: "hide" as const,
       launchAtLogin: false,
       defaultPresetId: "standard",
       autoStartBreak: false,
       notificationsEnabled: true,
-      masterVolume: 1,
+      masterVolume: 1.5,
       playSelectedTrackOnFocus: true,
       crossfadeSeconds: 2,
     };

@@ -81,7 +81,7 @@ export class AudioEngine {
   }
 
   setVolume(value: number): void {
-    const normalized = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+    const normalized = Number.isFinite(value) ? Math.min(2, Math.max(0, value)) : 1.5;
     this.host.setVolume(normalized);
   }
 
@@ -216,9 +216,10 @@ class WebChuckDeck implements AudioDeck {
 
 export class WebChuckAudioHost implements AudioHost {
   private context: AudioContext | null = null;
+  private master: GainNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private output: GainNode | null = null;
-  private volume = 1;
+  private volume = 1.5;
 
   async createDeck(onProcessorError: () => void): Promise<AudioDeck> {
     this.ensureGraph();
@@ -236,7 +237,7 @@ export class WebChuckAudioHost implements AudioHost {
     gain.gain.value = 0;
     try {
       chuck.connect(gain);
-      gain.connect(this.limiter!);
+      gain.connect(this.master!);
     } catch (reason) {
       chuck.disconnect();
       const detail = reason instanceof Error ? reason.message : String(reason);
@@ -259,8 +260,10 @@ export class WebChuckAudioHost implements AudioHost {
   }
 
   setVolume(value: number): void {
-    this.volume = value;
-    if (this.output) this.output.gain.value = import.meta.env.VITE_E2E === "1" ? 0 : value;
+    this.volume = Number.isFinite(value) ? Math.min(2, Math.max(0, value)) : 1.5;
+    if (this.master && this.context) {
+      scheduleMasterVolume(this.master, this.context.currentTime, this.volume);
+    }
   }
 
   prepareForUserGesture(): void {
@@ -277,21 +280,34 @@ export class WebChuckAudioHost implements AudioHost {
     this.limiter.ratio.value = 12;
     this.limiter.attack.value = 0.003;
     this.limiter.release.value = 0.25;
-    this.output = connectSystemOutput(this.context, this.limiter, import.meta.env.VITE_E2E === "1");
+    ({ master: this.master, output: this.output } = connectSystemOutput(
+      this.context,
+      this.limiter,
+      import.meta.env.VITE_E2E === "1",
+    ));
     this.setVolume(this.volume);
   }
+}
+
+export function scheduleMasterVolume(master: GainNode, now: number, value: number): void {
+  const normalized = Number.isFinite(value) ? Math.min(2, Math.max(0, value)) : 1.5;
+  master.gain.cancelScheduledValues(now);
+  master.gain.setValueAtTime(master.gain.value, now);
+  master.gain.linearRampToValueAtTime(normalized, now + 0.02);
 }
 
 export function connectSystemOutput(
   context: AudioContext,
   limiter: DynamicsCompressorNode,
   muted: boolean,
-): GainNode {
+): { master: GainNode; output: GainNode } {
+  const master = context.createGain();
   const output = context.createGain();
   output.gain.value = muted ? 0 : 1;
+  master.connect(limiter);
   limiter.connect(output);
   output.connect(context.destination);
-  return output;
+  return { master, output };
 }
 
 export interface AudioValidationContextLease {

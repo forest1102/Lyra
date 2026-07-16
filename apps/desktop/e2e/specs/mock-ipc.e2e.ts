@@ -65,13 +65,13 @@ describe("モックIPC", () => {
 
   it("オーディオ設定を明示保存しsave_app_settingsの引数を確認できる", async () => {
     const savedSettings = {
-      version: 1,
+      version: 2,
       closeBehavior: "hide",
       launchAtLogin: false,
       defaultPresetId: "standard",
       autoStartBreak: false,
       notificationsEnabled: true,
-      masterVolume: 0.65,
+      masterVolume: 1.65,
       playSelectedTrackOnFocus: true,
       crossfadeSeconds: 4
     };
@@ -80,7 +80,7 @@ describe("モックIPC", () => {
 
     await openScreen("設定");
     await $("button=オーディオ").click();
-    await $("input[aria-label='マスター音量']").setValue("65");
+    await $("input[aria-label='マスター音量']").setValue("165");
     await $("input[aria-label='クロスフェード']").setValue("4");
     await $("button=設定を保存").click();
     await browser.waitUntil(async () => {

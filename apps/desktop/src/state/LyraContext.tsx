@@ -3,7 +3,7 @@ import {
   BUILTIN_PRESETS,
   DEFAULT_APP_SETTINGS,
   type AddTaskV2,
-  type AppSettingsV1,
+  type AppSettingsV2,
   type DeleteMusicTracksResult,
   type MusicDraft,
   type MusicGenerationProgress,
@@ -51,7 +51,7 @@ export interface LyraState {
   libraryTracks: MusicTrack[];
   projects: Project[];
   tags: Tag[];
-  settings: AppSettingsV1;
+  settings: AppSettingsV2;
   libraryQuery: MusicTrackListQuery;
   draft: MusicDraft | null;
   timer: TimerState;
@@ -93,7 +93,7 @@ export interface LyraState {
   setLibraryQuery(query: MusicTrackListQuery): Promise<void>;
   renameTrack(id: string, title: string): Promise<MusicTrack>;
   deleteTracks(ids: string[]): Promise<DeleteMusicTracksResult>;
-  saveSettings(settings: AppSettingsV1): Promise<AppSettingsV1>;
+  saveSettings(settings: AppSettingsV2): Promise<AppSettingsV2>;
   runtimeDiagnostics(): Promise<RuntimeDiagnostic[]>;
   openDataDirectory(): Promise<void>;
 }
@@ -135,7 +135,7 @@ export function LyraProvider({
   const [libraryTracks, setLibraryTracks] = useState<MusicTrack[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [settings, setSettings] = useState<AppSettingsV1>(DEFAULT_APP_SETTINGS);
+  const [settings, setSettings] = useState<AppSettingsV2>(DEFAULT_APP_SETTINGS);
   const [libraryQuery, setLibraryQueryState] = useState<MusicTrackListQuery>({ sort: "created_desc" });
   const [draft, setDraft] = useState<MusicDraft | null>(null);
   const [preset, setPreset] = useState<TimerPreset>(BUILTIN_PRESETS[1]);

@@ -7,13 +7,13 @@ import { DEFAULT_APP_SETTINGS } from "../domain";
 
 const context = vi.hoisted(() => ({
   settings: {
-    version: 1 as const,
+    version: 2 as const,
     closeBehavior: "hide" as const,
     launchAtLogin: false,
     defaultPresetId: "standard",
     autoStartBreak: false,
     notificationsEnabled: true,
-    masterVolume: 1,
+    masterVolume: 1.5,
     playSelectedTrackOnFocus: true,
     crossfadeSeconds: 2,
   },
@@ -58,15 +58,26 @@ test("変更は明示的な保存操作で反映する", async () => {
   render(<SettingsScreen />);
 
   fireEvent.click(screen.getByRole("button", { name: "オーディオ" }));
-  fireEvent.change(screen.getByLabelText("マスター音量"), { target: { value: "65" } });
+  fireEvent.change(screen.getByLabelText("マスター音量"), { target: { value: "165" } });
   fireEvent.change(screen.getByLabelText("クロスフェード"), { target: { value: "4" } });
   expect(context.saveSettings).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "設定を保存" }));
   await waitFor(() => expect(context.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
-    masterVolume: 0.65,
+    masterVolume: 1.65,
     crossfadeSeconds: 4,
   })));
+});
+
+test("マスター音量は150%を標準として1%刻みで200%まで設定できる", () => {
+  render(<SettingsScreen />);
+
+  fireEvent.click(screen.getByRole("button", { name: "オーディオ" }));
+  expect(screen.getByText(/標準は150%/)).toBeInTheDocument();
+  expect(screen.getByLabelText("マスター音量")).toHaveAttribute("max", "200");
+  expect(screen.getByLabelText("マスター音量")).toHaveAttribute("step", "1");
+  expect(screen.getByLabelText("マスター音量")).toHaveValue(150);
+  expect(screen.getByRole("slider", { name: "マスター音量スライダー" })).toHaveAttribute("aria-valuemax", "200");
 });
 
 test("カスタムプリセットを削除できる", async () => {

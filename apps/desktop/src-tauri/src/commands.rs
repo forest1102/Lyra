@@ -2,7 +2,7 @@ use crate::music::codex_client::{resolve_codex_binary, CodexClient, GenerationCo
 use crate::music::generation::{GeneratedMusicDraft, GenerationService};
 use crate::music::track_store::TrackStore;
 use lyra_core::{
-    AddTask, AddTaskV2, AppSettingsV1, Database, DeleteMusicTracksResult, FocusSession,
+    AddTask, AddTaskV2, AppSettingsV2, Database, DeleteMusicTracksResult, FocusSession,
     MusicRecipeV1, MusicTrackListQuery, MusicTrackRecord, Project, RuntimeDiagnostic, Tag, Task,
     TaskList, TaskStatus, TimerAction, TimerEngine, TimerPhase, TimerPreset, TimerState,
     TimerStatus, UpdateTask,
@@ -490,7 +490,7 @@ pub fn delete_music_tracks(
 }
 
 #[tauri::command]
-pub fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettingsV1, String> {
+pub fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettingsV2, String> {
     state
         .database
         .lock()
@@ -500,7 +500,7 @@ pub fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettingsV1, Str
 }
 
 #[tauri::command]
-pub fn save_app_settings(settings: AppSettingsV1, app: AppHandle) -> Result<AppSettingsV1, String> {
+pub fn save_app_settings(settings: AppSettingsV2, app: AppHandle) -> Result<AppSettingsV2, String> {
     let state = app.state::<AppState>();
     let database = state.database.lock().map_err(error)?;
     let current = database.get_app_settings().map_err(error)?;
@@ -525,16 +525,16 @@ pub fn save_app_settings(settings: AppSettingsV1, app: AppHandle) -> Result<AppS
 }
 
 fn save_app_settings_coordinated<V, A, P>(
-    settings: &AppSettingsV1,
+    settings: &AppSettingsV2,
     previous_launch_at_login: bool,
     validate: V,
     mut apply_autostart: A,
     persist: P,
-) -> Result<AppSettingsV1, String>
+) -> Result<AppSettingsV2, String>
 where
     V: FnOnce() -> Result<(), String>,
     A: FnMut(bool) -> Result<(), String>,
-    P: FnOnce() -> Result<AppSettingsV1, String>,
+    P: FnOnce() -> Result<AppSettingsV2, String>,
 {
     validate()?;
     let autostart_changed = settings.launch_at_login != previous_launch_at_login;
@@ -999,7 +999,7 @@ fn validate_music_arrangement(value: &str) -> Result<(), String> {
 mod tests {
     use super::{
         replace_generated_draft, save_app_settings_coordinated, save_music_draft_from_map,
-        validate_audio_report, validate_music_arrangement, AppSettingsV1, DraftValidationReport,
+        validate_audio_report, validate_music_arrangement, AppSettingsV2, DraftValidationReport,
         GeneratedMusicDraft,
     };
     use std::cell::{Cell, RefCell};
@@ -1034,9 +1034,9 @@ mod tests {
 
     #[test]
     fn invalid_settings_do_not_change_autostart_or_persist() {
-        let settings = AppSettingsV1 {
+        let settings = AppSettingsV2 {
             launch_at_login: true,
-            ..AppSettingsV1::default()
+            ..AppSettingsV2::default()
         };
         let autostart_calls = Cell::new(0);
         let persist_calls = Cell::new(0);
@@ -1061,9 +1061,9 @@ mod tests {
 
     #[test]
     fn database_failure_rolls_autostart_back_to_the_previous_value() {
-        let settings = AppSettingsV1 {
+        let settings = AppSettingsV2 {
             launch_at_login: true,
-            ..AppSettingsV1::default()
+            ..AppSettingsV2::default()
         };
         let applied = RefCell::new(Vec::new());
         let result = save_app_settings_coordinated(

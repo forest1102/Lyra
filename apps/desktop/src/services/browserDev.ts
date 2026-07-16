@@ -2,7 +2,7 @@ import {
   DEFAULT_APP_SETTINGS,
   BUILTIN_PRESETS,
   type AddTaskV2,
-  type AppSettingsV1,
+  type AppSettingsV2,
   type DraftValidationReport,
   type MusicDraft,
   type MusicGenerationRequest,
@@ -113,7 +113,7 @@ export function createBrowserDevBridge(): DesktopBridge {
     { id: "browser-project-1", name: "Lyra", color: "#d8f068", position: 0 },
   ];
   let tags: Tag[] = [{ id: "browser-tag-1", name: "設計" }];
-  let settings: AppSettingsV1 = { ...DEFAULT_APP_SETTINGS };
+  let settings: AppSettingsV2 = { ...DEFAULT_APP_SETTINGS };
   let timer: TimerState = {
     preset: presets.find((preset) => preset.id === "standard") ?? presets[0],
     phase: "focus",

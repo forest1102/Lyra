@@ -1,5 +1,5 @@
 use lyra_core::{
-    AddTaskV2, AppSettingsV1, Database, DeleteMusicTracksResult, MoodSelection, MusicRecipeV1,
+    AddTaskV2, AppSettingsV2, Database, DeleteMusicTracksResult, MoodSelection, MusicRecipeV1,
     MusicTrackListQuery, MusicTrackSort, NewMusicTrack, Project, Recurrence, Tag, TaskPriority,
     TaskStatus, TimerPreset, UpdateTask,
 };
@@ -291,15 +291,18 @@ fn bulk_delete_rejects_tampered_files_and_more_than_two_hundred_ids() {
 #[test]
 fn settings_defaults_are_versioned_and_builtin_presets_cannot_be_deleted() {
     let db = Database::open_in_memory().unwrap();
-    assert_eq!(db.get_app_settings().unwrap(), AppSettingsV1::default());
+    assert_eq!(db.get_app_settings().unwrap(), AppSettingsV2::default());
+    assert_eq!(db.get_app_settings().unwrap().version, 2);
+    assert_eq!(db.get_app_settings().unwrap().master_volume, 1.5);
+    assert!(db.get_setting("app.settings.v2").unwrap().is_some());
     assert_eq!(db.get_app_settings().unwrap().crossfade_seconds, 2.0);
-    let invalid = AppSettingsV1 {
+    let invalid = AppSettingsV2 {
         launch_at_login: true,
         default_preset_id: "missing".into(),
-        ..AppSettingsV1::default()
+        ..AppSettingsV2::default()
     };
     assert!(db.save_app_settings(&invalid).is_err());
-    assert_eq!(db.get_app_settings().unwrap(), AppSettingsV1::default());
+    assert_eq!(db.get_app_settings().unwrap(), AppSettingsV2::default());
     assert!(db.delete_timer_preset("standard").is_err());
 
     db.save_timer_preset(TimerPreset {
@@ -312,12 +315,59 @@ fn settings_defaults_are_versioned_and_builtin_presets_cannot_be_deleted() {
         built_in: false,
     })
     .unwrap();
-    db.save_app_settings(&AppSettingsV1 {
+    db.save_app_settings(&AppSettingsV2 {
         default_preset_id: "custom-default".into(),
-        ..AppSettingsV1::default()
+        ..AppSettingsV2::default()
     })
     .unwrap();
     assert!(db.delete_timer_preset("custom-default").is_err());
+}
+
+#[test]
+fn settings_migrate_legacy_volume_once_and_preserve_lower_values() {
+    let db = Database::open_in_memory().unwrap();
+    db.set_setting(
+        "app.settings.v1",
+        r#"{"version":1,"closeBehavior":"hide","launchAtLogin":false,"defaultPresetId":"standard","autoStartBreak":false,"notificationsEnabled":true,"masterVolume":1.0,"playSelectedTrackOnFocus":true,"crossfadeSeconds":2.0}"#,
+    )
+    .unwrap();
+
+    let migrated = db.get_app_settings().unwrap();
+    assert_eq!(migrated.master_volume, 1.5);
+    assert!(db.get_setting("app.settings.v2").unwrap().is_some());
+
+    db.save_app_settings(&AppSettingsV2 {
+        master_volume: 1.0,
+        ..migrated
+    })
+    .unwrap();
+    assert_eq!(db.get_app_settings().unwrap().master_volume, 1.0);
+
+    let lower = Database::open_in_memory().unwrap();
+    lower
+        .set_setting(
+            "app.settings.v1",
+            r#"{"version":1,"closeBehavior":"hide","launchAtLogin":false,"defaultPresetId":"standard","autoStartBreak":false,"notificationsEnabled":true,"masterVolume":0.65,"playSelectedTrackOnFocus":true,"crossfadeSeconds":2.0}"#,
+        )
+        .unwrap();
+    assert_eq!(lower.get_app_settings().unwrap().master_volume, 0.65);
+}
+
+#[test]
+fn settings_accept_master_volume_through_two() {
+    let db = Database::open_in_memory().unwrap();
+    assert!(db
+        .save_app_settings(&AppSettingsV2 {
+            master_volume: 2.0,
+            ..AppSettingsV2::default()
+        })
+        .is_ok());
+    assert!(db
+        .save_app_settings(&AppSettingsV2 {
+            master_volume: 2.01,
+            ..AppSettingsV2::default()
+        })
+        .is_err());
 }
 
 #[test]

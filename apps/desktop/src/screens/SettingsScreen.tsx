@@ -14,7 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { AppSettingsV1, RuntimeDiagnostic, TimerPreset } from "../domain";
+import type { AppSettingsV2, RuntimeDiagnostic, TimerPreset } from "../domain";
 import { useLyra } from "../state/LyraContext";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -114,7 +114,7 @@ function PresetDialog({ preset, onSave }: { preset: TimerPreset; onSave: (preset
 export function SettingsScreen() {
   const lyra = useLyra();
   const [section, setSection] = useState<SettingsSection>("general");
-  const [draft, setDraft] = useState<AppSettingsV1>(lyra.settings);
+  const [draft, setDraft] = useState<AppSettingsV2>(lyra.settings);
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostic[]>([]);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -154,7 +154,7 @@ export function SettingsScreen() {
     general: (
       <FieldGroup>
         <SettingRow title="ウィンドウを閉じた時" description="メニューバーで動かし続けるか、アプリを終了するかを選びます。">
-          <Select value={draft.closeBehavior} onValueChange={(value) => setDraft((current) => ({ ...current, closeBehavior: value as AppSettingsV1["closeBehavior"] }))}>
+          <Select value={draft.closeBehavior} onValueChange={(value) => setDraft((current) => ({ ...current, closeBehavior: value as AppSettingsV2["closeBehavior"] }))}>
             <SelectTrigger aria-label="ウィンドウを閉じた時"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="hide">非表示にする</SelectItem><SelectItem value="quit">終了する</SelectItem></SelectContent>
           </Select>
@@ -203,10 +203,10 @@ export function SettingsScreen() {
     ),
     audio: (
       <FieldGroup>
-        <SettingRow title="マスター音量" description="Deckを作り直さず、出力Gainへ反映します。">
+        <SettingRow title="マスター音量" description="標準は150%です。Deckを作り直さず、出力Gainへ反映します。">
           <div className="settings-slider">
-            <Slider value={[Math.round(draft.masterVolume * 100)]} min={0} max={100} step={1} onValueChange={([value]) => setDraft((current) => ({ ...current, masterVolume: value / 100 }))} aria-label="マスター音量スライダー" />
-            <Input aria-label="マスター音量" type="number" min={0} max={100} value={Math.round(draft.masterVolume * 100)} onChange={(event) => setDraft((current) => ({ ...current, masterVolume: Math.min(100, Math.max(0, Number(event.target.value))) / 100 }))} />
+            <Slider value={[Math.round(draft.masterVolume * 100)]} min={0} max={200} step={1} onValueChange={([value]) => setDraft((current) => ({ ...current, masterVolume: value / 100 }))} aria-label="マスター音量スライダー" />
+            <Input aria-label="マスター音量" type="number" min={0} max={200} step={1} value={Math.round(draft.masterVolume * 100)} onChange={(event) => setDraft((current) => ({ ...current, masterVolume: Math.min(200, Math.max(0, Number(event.target.value))) / 100 }))} />
             <span>%</span>
           </div>
         </SettingRow>

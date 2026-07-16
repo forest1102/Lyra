@@ -43,13 +43,13 @@ const context = vi.hoisted(() => {
     },
     selectedTrackId: null as string | null,
     settings: {
-      version: 1 as const,
+      version: 2 as const,
       closeBehavior: "hide" as const,
       launchAtLogin: false,
       defaultPresetId: "standard",
       autoStartBreak: false,
       notificationsEnabled: true,
-      masterVolume: 1,
+      masterVolume: 1.5,
       playSelectedTrackOnFocus: true,
       crossfadeSeconds: 2,
     },
@@ -83,7 +83,7 @@ beforeEach(() => {
   context.libraryQuery = { sort: "created_desc" };
   context.musicPlayback = { status: "stopped", trackId: null, disabled: false };
   context.selectedTrackId = null;
-  context.settings.masterVolume = 1;
+  context.settings.masterVolume = 1.5;
   context.setLibraryQuery.mockReset().mockResolvedValue(undefined);
   context.renameTrack.mockReset().mockImplementation(async (id: string, title: string) => ({
     ...context.tracks.find((track) => track.id === id)!,
@@ -129,6 +129,20 @@ describe("ライブラリの検索と選択", () => {
     expect(within(player).queryByText("Rain Study")).not.toBeInTheDocument();
     await user.click(within(player).getByRole("button", { name: "一時停止" }));
     expect(context.pauseMusic).toHaveBeenCalledOnce();
+  });
+
+  test("固定プレイヤーの音量は150%を標準として1%刻みで200%まで設定できる", async () => {
+    const user = userEvent.setup();
+    context.musicPlayback = { status: "playing", trackId: "rain-1", disabled: false };
+    render(<LibraryScreen />);
+
+    const slider = within(screen.getByLabelText("WebChucKプレイヤー")).getByRole("slider", { name: "マスター音量" });
+    expect(slider).toHaveAttribute("aria-valuenow", "150");
+    expect(slider).toHaveAttribute("aria-valuemax", "200");
+    expect(screen.getByText(/標準 150%/)).toBeInTheDocument();
+    slider.focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(context.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ masterVolume: 1.51 })));
   });
 });
 

@@ -769,7 +769,7 @@ impl MusicDeleteFileOps for StandardMusicDeleteFileOps {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct AppSettingsV1 {
+pub struct AppSettingsV2 {
     pub version: u8,
     pub close_behavior: String,
     pub launch_at_login: bool,
@@ -781,18 +781,52 @@ pub struct AppSettingsV1 {
     pub crossfade_seconds: f64,
 }
 
-impl Default for AppSettingsV1 {
+impl Default for AppSettingsV2 {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             close_behavior: "hide".into(),
             launch_at_login: false,
             default_preset_id: "standard".into(),
             auto_start_break: false,
             notifications_enabled: true,
-            master_volume: 1.0,
+            master_volume: 1.5,
             play_selected_track_on_focus: true,
             crossfade_seconds: 2.0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAppSettingsV1 {
+    version: u8,
+    close_behavior: String,
+    launch_at_login: bool,
+    default_preset_id: String,
+    auto_start_break: bool,
+    notifications_enabled: bool,
+    master_volume: f64,
+    play_selected_track_on_focus: bool,
+    crossfade_seconds: f64,
+}
+
+impl From<LegacyAppSettingsV1> for AppSettingsV2 {
+    fn from(settings: LegacyAppSettingsV1) -> Self {
+        Self {
+            version: 2,
+            close_behavior: settings.close_behavior,
+            launch_at_login: settings.launch_at_login,
+            default_preset_id: settings.default_preset_id,
+            auto_start_break: settings.auto_start_break,
+            notifications_enabled: settings.notifications_enabled,
+            master_volume: if settings.master_volume == 1.0 {
+                1.5
+            } else {
+                settings.master_volume
+            },
+            play_selected_track_on_focus: settings.play_selected_track_on_focus,
+            crossfade_seconds: settings.crossfade_seconds,
         }
     }
 }
@@ -1643,30 +1677,43 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_app_settings(&self) -> Result<AppSettingsV1> {
-        let Some(value) = self.get_setting("app.settings.v1")? else {
-            return Ok(AppSettingsV1::default());
+    pub fn get_app_settings(&self) -> Result<AppSettingsV2> {
+        if let Some(value) = self.get_setting("app.settings.v2")? {
+            return serde_json::from_str(&value).map_err(|error| {
+                LyraError::InvalidInput(format!("stored app settings are invalid: {error}"))
+            });
+        }
+        let settings = if let Some(value) = self.get_setting("app.settings.v1")? {
+            let legacy: LegacyAppSettingsV1 = serde_json::from_str(&value).map_err(|error| {
+                LyraError::InvalidInput(format!("stored app settings are invalid: {error}"))
+            })?;
+            if legacy.version != 1 {
+                return Err(LyraError::InvalidInput(
+                    "stored app settings are invalid: legacy version is not 1".into(),
+                ));
+            }
+            legacy.into()
+        } else {
+            AppSettingsV2::default()
         };
-        serde_json::from_str(&value).map_err(|error| {
-            LyraError::InvalidInput(format!("stored app settings are invalid: {error}"))
-        })
+        self.save_app_settings(&settings)
     }
 
-    pub fn save_app_settings(&self, settings: &AppSettingsV1) -> Result<AppSettingsV1> {
+    pub fn save_app_settings(&self, settings: &AppSettingsV2) -> Result<AppSettingsV2> {
         self.validate_app_settings(settings)?;
         let json = serde_json::to_string(settings).map_err(|error| {
             LyraError::InvalidInput(format!("app settings could not be encoded: {error}"))
         })?;
-        self.set_setting("app.settings.v1", &json)?;
+        self.set_setting("app.settings.v2", &json)?;
         Ok(settings.clone())
     }
 
-    pub fn validate_app_settings(&self, settings: &AppSettingsV1) -> Result<()> {
-        if settings.version != 1
+    pub fn validate_app_settings(&self, settings: &AppSettingsV2) -> Result<()> {
+        if settings.version != 2
             || !matches!(settings.close_behavior.as_str(), "hide" | "quit")
             || settings.default_preset_id.trim().is_empty()
             || !settings.master_volume.is_finite()
-            || !(0.0..=1.0).contains(&settings.master_volume)
+            || !(0.0..=2.0).contains(&settings.master_volume)
             || !settings.crossfade_seconds.is_finite()
             || !(0.0..=10.0).contains(&settings.crossfade_seconds)
         {
