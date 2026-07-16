@@ -150,11 +150,13 @@ describe("Music Alchemyのムード選択", () => {
     expect(screen.getByRole("note", { name: "ベルベットを削除できません: 最後のムードです" })).toHaveAttribute("tabindex", "0");
   });
 
-  test("ムードが1件のとき重みSliderを100%固定と説明し、2件で再有効化する", async () => {
+  test("重みSliderの上限を他ムードの最小1%に合わせ、1件だけ100%固定にする", async () => {
     const user = userEvent.setup();
     render(<StudioScreen />);
 
     await user.click(screen.getByRole("button", { name: "雨の窓辺を削除" }));
+    expect(screen.getByRole("slider", { name: "ベルベットの重み" })).toHaveAttribute("aria-valuemax", "99");
+
     await user.click(screen.getByRole("button", { name: "陽だまりを削除" }));
 
     const fixedSlider = screen.getByRole("slider", { name: /ベルベットの重み.*ムードが1つのため重みは100%に固定されています/ });
@@ -164,8 +166,13 @@ describe("Music Alchemyのムード選択", () => {
 
     await user.click(screen.getByRole("button", { name: "静かな書庫" }));
     const adjustableSlider = screen.getByRole("slider", { name: "ベルベットの重み" });
-    expect(adjustableSlider).toHaveAttribute("aria-valuemax", "100");
+    expect(adjustableSlider).toHaveAttribute("aria-valuemax", "99");
     expect(adjustableSlider).not.toHaveAttribute("data-disabled");
+
+    await user.click(screen.getByRole("button", { name: "雨の窓辺" }));
+    await user.click(screen.getByRole("button", { name: "深い森" }));
+    await user.click(screen.getByRole("button", { name: "遠い海辺" }));
+    expect(screen.getByRole("slider", { name: "ベルベットの重み" })).toHaveAttribute("aria-valuemax", "96");
   });
 });
 

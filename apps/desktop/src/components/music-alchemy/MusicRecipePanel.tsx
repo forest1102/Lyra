@@ -30,12 +30,12 @@ interface MusicRecipePanelProps {
   onDiscard(): void;
 }
 
-function MoodWeightSlider({ label, value, disabled, onValueChange }: { label: string; value: number; disabled: boolean; onValueChange(value: number): void }) {
+function MoodWeightSlider({ label, value, max, disabled, onValueChange }: { label: string; value: number; max: number; disabled: boolean; onValueChange(value: number): void }) {
   return (
     <Slider
       aria-label={label}
       min={1}
-      max={100}
+      max={max}
       step={1}
       value={[value]}
       disabled={disabled}
@@ -105,6 +105,7 @@ export function MusicRecipePanel({
   onDiscard,
 }: MusicRecipePanelProps) {
   const selections = describeRecipe(recipe);
+  const maxWeightPercent = 100 - (selections.length - 1);
   const statuses = generationStatusRows(phase, repairReceived);
   const deferred = draft?.audioValidation === "deferred_until_focus_ends";
   const validated = draft?.audioValidation === "passed";
@@ -169,6 +170,7 @@ export function MusicRecipePanel({
                 <MoodWeightSlider
                   label={weightFixed ? `${mood.label}の重み。ムードが1つのため重みは100%に固定されています` : `${mood.label}の重み`}
                   value={percent}
+                  max={maxWeightPercent}
                   disabled={editingDisabled || weightFixed}
                   onValueChange={(value) => onWeightChange(moodId, value / 100)}
                 />
