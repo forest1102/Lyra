@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { MusicDraft } from "../domain";
 import { createMusicRecipe } from "../services/moodCatalog";
+import type { MusicGenerationPhase } from "../services/musicGeneration";
 
 const createDraft = (audioValidation: MusicDraft["audioValidation"] = "pending"): MusicDraft => ({
   id: "draft-1",
@@ -30,6 +31,18 @@ const createDraft = (audioValidation: MusicDraft["audioValidation"] = "pending")
 
 const context = vi.hoisted(() => ({
   draft: null as MusicDraft | null,
+  musicGeneration: {
+    recipe: { version: 1 as const, moods: [
+      { moodId: "scene-rainy-window", weight: 1 / 3 },
+      { moodId: "temperature-sunlight", weight: 1 / 3 },
+      { moodId: "texture-velvet", weight: 1 / 3 },
+    ] },
+    phase: "idle" as MusicGenerationPhase,
+    cancelling: false,
+    repairReceived: false,
+    error: null as string | null,
+    sessionId: 0,
+  },
   timer: { status: "idle" },
   musicPlayback: { status: "stopped", trackId: null, disabled: false } as {
     status: "stopped" | "playing" | "paused";
@@ -37,8 +50,11 @@ const context = vi.hoisted(() => ({
     disabled: boolean;
   },
   generateTrack: vi.fn(),
+  setMusicRecipe: vi.fn(),
+  startMusicGeneration: vi.fn(),
   cancelMusicGeneration: vi.fn(),
   previewDraft: vi.fn(),
+  previewMusicDraft: vi.fn(),
   stopMusic: vi.fn(),
   saveDraft: vi.fn(),
   discardDraft: vi.fn(),
@@ -51,11 +67,22 @@ import { StudioScreen, rebalanceRecipeWeight } from "./StudioScreen";
 
 beforeEach(() => {
   context.draft = null;
+  context.musicGeneration = {
+    recipe: createMusicRecipe(["scene-rainy-window", "temperature-sunlight", "texture-velvet"]),
+    phase: "idle",
+    cancelling: false,
+    repairReceived: false,
+    error: null,
+    sessionId: 0,
+  };
   context.timer = { status: "idle" };
   context.musicPlayback = { status: "stopped", trackId: null, disabled: false };
   context.generateTrack.mockReset().mockResolvedValue(createDraft());
+  context.setMusicRecipe.mockReset();
+  context.startMusicGeneration.mockReset().mockResolvedValue(undefined);
   context.cancelMusicGeneration.mockReset().mockResolvedValue(undefined);
   context.previewDraft.mockReset().mockResolvedValue(createDraft("passed"));
+  context.previewMusicDraft.mockReset().mockResolvedValue(undefined);
   context.stopMusic.mockReset().mockResolvedValue(undefined);
   context.saveDraft.mockReset().mockResolvedValue(undefined);
   context.discardDraft.mockReset();
@@ -177,31 +204,39 @@ describe("Music Alchemyのムード選択", () => {
 });
 
 describe("Music Alchemyの生成フロー", () => {
-  test("正規化したversion付きrecipeだけを生成要求として送って自動再生しない", async () => {
+  test("再表示時に共有中の生成工程とレシピを復元する", () => {
+    context.musicGeneration = {
+      recipe: createMusicRecipe(["time-midnight", "texture-velvet"]),
+      phase: "source_validating",
+      cancelling: false,
+      repairReceived: false,
+      error: null,
+      sessionId: 4,
+    };
+
+    render(<StudioScreen />);
+
+    expect(screen.getByText("ChucKコードを検証しています")).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "深夜の重み" })).toHaveAttribute("aria-valuenow", "50");
+    expect(screen.getByRole("slider", { name: "ベルベットの重み" })).toHaveAttribute("aria-valuenow", "50");
+  });
+
+  test("共有生成セッションを開始して自動再生しない", async () => {
     const user = userEvent.setup();
     render(<StudioScreen />);
 
     await user.click(screen.getByRole("button", { name: "このムードで生成" }));
 
-    await waitFor(() => expect(context.generateTrack).toHaveBeenCalledOnce());
-    expect(context.generateTrack).toHaveBeenCalledWith({
-      version: 1,
-      moods: [
-        { moodId: "scene-rainy-window", weight: expect.closeTo(1 / 3, 8) },
-        { moodId: "temperature-sunlight", weight: expect.closeTo(1 / 3, 8) },
-        { moodId: "texture-velvet", weight: expect.closeTo(1 / 3, 8) },
-      ],
-    }, expect.any(Function));
-    expect(context.previewDraft).not.toHaveBeenCalled();
+    expect(context.startMusicGeneration).toHaveBeenCalledWith(expect.objectContaining({ version: 1 }));
+    expect(context.previewMusicDraft).not.toHaveBeenCalled();
   });
 
   test("生成中は進捗を表示し、画面から生成を中止できる", async () => {
     const user = userEvent.setup();
-    context.generateTrack.mockReturnValue(new Promise(() => undefined));
+    context.musicGeneration = { ...context.musicGeneration, phase: "composing", sessionId: 1 };
     render(<StudioScreen />);
 
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    expect(await screen.findByText("構成を組み立てています")).toBeInTheDocument();
+    expect(screen.getByText("構成を組み立てています")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar", { name: "音楽生成の進捗" })).not.toBeInTheDocument();
     expect(screen.queryByText("コードを修復しています")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "生成を中止" }));
@@ -209,131 +244,20 @@ describe("Music Alchemyの生成フロー", () => {
     expect(context.cancelMusicGeneration).toHaveBeenCalledOnce();
   });
 
-  test("受信した生成フェーズだけを事実ベースの状態行として表示する", async () => {
-    const user = userEvent.setup();
-    let reportPhase!: (progress: { phase: "composing" | "source_validating" | "repairing" }) => void;
-    context.generateTrack.mockImplementation((_request, onProgress) => {
-      reportPhase = onProgress;
-      return new Promise(() => undefined);
-    });
-    render(<StudioScreen />);
+  test("共有状態が生成中または中止中ならすべてのレシピ編集をロックする", () => {
+    context.musicGeneration = { ...context.musicGeneration, phase: "source_validating", sessionId: 1 };
+    const view = render(<StudioScreen />);
 
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    act(() => reportPhase({ phase: "composing" }));
-    expect(screen.getByText("構成を組み立てています")).toBeInTheDocument();
-    expect(screen.queryByText("ChucKコードを検証しています")).not.toBeInTheDocument();
-
-    act(() => reportPhase({ phase: "source_validating" }));
-    expect(screen.getByText("ChucKコードを検証しています")).toBeInTheDocument();
-    expect(screen.queryByText("コードを修復しています")).not.toBeInTheDocument();
-
-    act(() => reportPhase({ phase: "repairing" }));
-    expect(screen.getByText("コードを修復しています")).toBeInTheDocument();
-
-    act(() => reportPhase({ phase: "source_validating" }));
-    expect(screen.getByText("コードを修復しました")).toBeInTheDocument();
-    expect(screen.getByText("ChucKコードを検証しています")).toBeInTheDocument();
-  });
-
-  test("修復履歴は次の生成開始時にリセットする", async () => {
-    const user = userEvent.setup();
-    context.generateTrack
-      .mockImplementationOnce(async (_request, onProgress) => {
-        onProgress?.({ phase: "repairing" });
-        return createDraft();
-      })
-      .mockImplementationOnce((_request, onProgress) => {
-        onProgress?.({ phase: "source_validating" });
-        return new Promise(() => undefined);
-      });
-    render(<StudioScreen />);
-
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    expect(await screen.findByText("コードを修復しました")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    expect(screen.queryByText("コードを修復しました")).not.toBeInTheDocument();
-  });
-
-  test("修復履歴は取消完了時にリセットする", async () => {
-    const user = userEvent.setup();
-    context.generateTrack
-      .mockImplementationOnce((_request, onProgress) => {
-        onProgress?.({ phase: "repairing" });
-        return new Promise(() => undefined);
-      })
-      .mockImplementationOnce((_request, onProgress) => {
-        onProgress?.({ phase: "source_validating" });
-        return new Promise(() => undefined);
-      });
-    render(<StudioScreen />);
-
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    expect(screen.getByText("コードを修復しています")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "生成を中止" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "このムードで生成" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    expect(screen.queryByText(/コードを修復/)).not.toBeInTheDocument();
-  });
-
-  test("生成開始から中止完了まではすべてのレシピ編集をロックする", async () => {
-    const user = userEvent.setup();
-    let acknowledgeCancellation!: () => void;
-    context.generateTrack.mockImplementation((_request, onProgress) => {
-      onProgress?.({ phase: "composing" });
-      return new Promise(() => undefined);
-    });
-    context.cancelMusicGeneration.mockReturnValue(new Promise<void>((resolve) => { acknowledgeCancellation = resolve; }));
-    render(<StudioScreen />);
-
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
     expect(screen.getByRole("button", { name: "静かな書庫" })).toBeDisabled();
     expect(screen.getByRole("radio", { name: "時間帯" })).toBeDisabled();
     expect(screen.getByRole("slider", { name: "雨の窓辺の重み" })).toHaveAttribute("data-disabled");
     expect(screen.getByRole("button", { name: "雨の窓辺を削除" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /雨の窓辺 33%/ })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "生成を中止" }));
+    context.musicGeneration = { ...context.musicGeneration, phase: "idle", cancelling: true };
+    view.rerender(<StudioScreen />);
     expect(screen.getByRole("button", { name: "静かな書庫" })).toBeDisabled();
-    acknowledgeCancellation();
-    await waitFor(() => expect(screen.getByRole("button", { name: "静かな書庫" })).toBeEnabled());
-  });
-
-  test("生成プロセスの停止確認までは再生成を有効にしない", async () => {
-    const user = userEvent.setup();
-    let acknowledgeCancellation!: () => void;
-    context.generateTrack.mockImplementation((_request, onProgress) => {
-      onProgress?.({ phase: "source_validating" });
-      return new Promise(() => undefined);
-    });
-    context.cancelMusicGeneration.mockReturnValue(new Promise<void>((resolve) => { acknowledgeCancellation = resolve; }));
-    render(<StudioScreen />);
-
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    await user.click(screen.getByRole("button", { name: "生成を中止" }));
-
     expect(screen.getByRole("button", { name: "中止しています" })).toBeDisabled();
-    acknowledgeCancellation();
-    await waitFor(() => expect(screen.getByRole("button", { name: "このムードで生成" })).toBeEnabled());
-  });
-
-  test("中止した古い生成の失敗が直後の新しい生成を上書きしない", async () => {
-    const user = userEvent.setup();
-    let rejectOld!: (reason: unknown) => void;
-    context.generateTrack
-      .mockImplementationOnce((_request, onProgress) => {
-        onProgress?.({ phase: "repairing" });
-        return new Promise((_resolve, reject) => { rejectOld = reject; });
-      })
-      .mockResolvedValueOnce(createDraft());
-    render(<StudioScreen />);
-
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    await user.click(screen.getByRole("button", { name: "生成を中止" }));
-    await user.click(screen.getByRole("button", { name: "このムードで生成" }));
-    rejectOld(new Error("old generation failed"));
-
-    expect(await screen.findByText("コードが完成しました。再生前に5秒検証してください")).toBeInTheDocument();
-    expect(screen.queryByText(/old generation failed/)).not.toBeInTheDocument();
   });
 
   test("生成後は明示クリックで5秒検証・再生し、合格後だけ保存できる", async () => {
@@ -343,10 +267,10 @@ describe("Music Alchemyの生成フロー", () => {
 
     const save = screen.getByRole("button", { name: "ライブラリに保存" });
     expect(save).toBeDisabled();
-    expect(context.previewDraft).not.toHaveBeenCalled();
+    expect(context.previewMusicDraft).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "検証して再生" }));
-    expect(context.previewDraft).toHaveBeenCalledWith(context.draft, expect.any(Function));
+    expect(context.previewMusicDraft).toHaveBeenCalledWith(context.draft);
 
     context.draft = createDraft("passed");
     view.rerender(<StudioScreen />);
@@ -364,6 +288,6 @@ describe("Music Alchemyの生成フロー", () => {
     const deferred = screen.getByRole("button", { name: "集中終了後に検証" });
     expect(deferred).toBeDisabled();
     await user.click(deferred);
-    expect(context.previewDraft).not.toHaveBeenCalled();
+    expect(context.previewMusicDraft).not.toHaveBeenCalled();
   });
 });

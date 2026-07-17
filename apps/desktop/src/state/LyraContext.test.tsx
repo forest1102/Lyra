@@ -598,6 +598,33 @@ test("中止後に到着した古い生成Draftを破棄する", async () => {
   expect(capturedState.draft).toBeNull();
 });
 
+test("Music Alchemy画面を外しても生成を継続し、再表示時に工程とDraftを復元する", async () => {
+  const pending = deferred<MusicDraft>();
+  let emitProgress: ((progress: MusicGenerationProgress) => void) | undefined;
+  const bridge = fakeBridge({
+    generateTrack: vi.fn((_request, onProgress) => {
+      emitProgress = onProgress;
+      return pending.promise;
+    }),
+    cancelMusicGeneration: vi.fn().mockResolvedValue(undefined),
+  });
+  const Wrapper = wrapper(bridge);
+  const view = render(<Wrapper><CaptureState /></Wrapper>);
+  await screen.findByText("captured-ready");
+
+  act(() => { void capturedState.startMusicGeneration(); });
+  act(() => emitProgress?.({ phase: "source_validating" }));
+  expect(capturedState.musicGeneration.phase).toBe("source_validating");
+
+  view.rerender(<Wrapper><span>別画面</span></Wrapper>);
+  await act(async () => { pending.resolve(musicDraft()); });
+  view.rerender(<Wrapper><CaptureState /></Wrapper>);
+
+  await waitFor(() => expect(capturedState.musicGeneration.phase).toBe("ready"));
+  expect(capturedState.draft?.id).toBe("draft-1");
+  expect(bridge.cancelMusicGeneration).not.toHaveBeenCalled();
+});
+
 test("集中終了Eventで延期Draftを明示検証できる状態へ戻す", async () => {
   let onTimer: ((state: TimerState) => void) | undefined;
   const bridge = fakeBridge({

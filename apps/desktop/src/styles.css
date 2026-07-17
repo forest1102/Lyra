@@ -235,6 +235,7 @@
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
@@ -267,6 +268,15 @@
   width: 3px;
   content: "";
   background: var(--primary);
+}
+
+.nav-generation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--primary);
+  font-size: 11px;
 }
 
 .stop-music {
@@ -795,9 +805,16 @@ pre {
   }
 
   .brand > :last-child,
-  .nav-item > :last-child:not(:first-child),
+  .nav-label,
+  .nav-generation-label,
   .sidebar-caption {
     display: none;
+  }
+
+  .nav-generation {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
   }
 
   .nav-item {

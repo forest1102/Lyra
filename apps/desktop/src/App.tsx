@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { AppSidebar, type ScreenId } from "./components/AppSidebar";
 import { Toaster } from "./components/ui/sonner";
 import { Spinner } from "./components/ui/spinner";
@@ -9,6 +10,7 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 import { StudioScreen } from "./screens/StudioScreen";
 import { TasksScreen } from "./screens/TasksScreen";
 import { useLyra } from "./state/LyraContext";
+import { isActiveGenerationPhase } from "./services/musicGeneration";
 import { Button } from "./ui/components";
 
 const screens: Record<ScreenId, () => React.JSX.Element> = {
@@ -21,12 +23,32 @@ const screens: Record<ScreenId, () => React.JSX.Element> = {
 
 export function App() {
   const [active, setActive] = useState<ScreenId>("focus");
-  const { stopMusic } = useLyra();
+  const { musicGeneration, stopMusic } = useLyra();
+  const notifiedGeneration = useRef(0);
   const ActiveScreen = screens[active];
+  const generationBusy = isActiveGenerationPhase(musicGeneration.phase) || musicGeneration.cancelling;
+
+  useEffect(() => {
+    const completed = musicGeneration.phase === "ready" || musicGeneration.phase === "deferred";
+    const failed = musicGeneration.phase === "failed";
+    if ((!completed && !failed) || musicGeneration.sessionId <= notifiedGeneration.current) return;
+    notifiedGeneration.current = musicGeneration.sessionId;
+    if (active === "studio") return;
+    if (completed) {
+      toast.success("音楽が完成しました", {
+        action: { label: "確認する", onClick: () => setActive("studio") },
+      });
+    } else {
+      toast.error("音楽の生成に失敗しました", {
+        action: { label: "確認する", onClick: () => setActive("studio") },
+      });
+    }
+  }, [active, musicGeneration.phase, musicGeneration.sessionId]);
+
   return (
     <TooltipProvider>
       <div className="app-shell">
-        <AppSidebar active={active} onNavigate={setActive} onStopMusic={() => void stopMusic()} />
+        <AppSidebar active={active} musicGenerating={generationBusy} onNavigate={setActive} onStopMusic={() => void stopMusic()} />
         <div className="content">
           {active === "tasks" ? <TasksScreen onStartFocus={() => setActive("focus")} /> : <ActiveScreen />}
         </div>

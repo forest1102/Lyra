@@ -1,6 +1,7 @@
 import { CircleStop, FlaskConical, Focus, Library, ListTodo, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
 import { LyraMark } from "./LyraMark";
 
 export type ScreenId = "focus" | "tasks" | "studio" | "library" | "settings";
@@ -15,10 +16,12 @@ const destinations: Array<{ id: ScreenId; label: string; icon: ComponentType<{ c
 
 export function AppSidebar({
   active,
+  musicGenerating = false,
   onNavigate,
   onStopMusic,
 }: {
   active: ScreenId;
+  musicGenerating?: boolean;
   onNavigate: (destination: ScreenId) => void;
   onStopMusic: () => void;
 }) {
@@ -31,6 +34,7 @@ export function AppSidebar({
       <nav aria-label="メインナビゲーション">
         {destinations.map((destination) => {
           const Icon = destination.icon;
+          const showGeneration = destination.id === "studio" && musicGenerating;
           const button = (
             <button
               key={destination.id}
@@ -41,7 +45,13 @@ export function AppSidebar({
               onClick={() => onNavigate(destination.id)}
             >
               <Icon className="size-5 shrink-0" strokeWidth={1.6} aria-hidden="true" />
-              <span>{destination.label}</span>
+              <span className="nav-label">{destination.label}</span>
+              {showGeneration ? (
+                <span className="nav-generation">
+                  <Spinner className="size-3.5" aria-label="音楽を生成中" />
+                  <span className="nav-generation-label">生成中</span>
+                </span>
+              ) : null}
             </button>
           );
           return (

@@ -29,3 +29,15 @@ test("approved five destinations are keyboard-accessible and stop audio independ
   await user.click(screen.getByRole("button", { name: "音楽を停止" }));
   expect(onStopMusic).toHaveBeenCalledOnce();
 });
+
+test("別画面でもMusic Alchemyの生成中状態を表示する", () => {
+  render(
+    <TooltipProvider>
+      <AppSidebar active="tasks" musicGenerating onNavigate={vi.fn()} onStopMusic={vi.fn()} />
+    </TooltipProvider>,
+  );
+
+  const alchemy = screen.getByRole("button", { name: "Music Alchemy" });
+  expect(alchemy).toHaveTextContent("生成中");
+  expect(screen.getByRole("status", { name: "音楽を生成中" })).toBeInTheDocument();
+});

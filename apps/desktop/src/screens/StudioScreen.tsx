@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import type { MusicDraft } from "../domain";
 import { MoodOrb } from "../components/music/MoodOrb";
@@ -12,13 +12,11 @@ import {
   removeMoodFromRecipe,
   type MusicRecipeV1,
 } from "../services/moodCatalog";
-import { isActiveGenerationPhase, MusicGenerationPipelineError, runMusicGeneration, type MusicGenerationPhase } from "../services/musicGeneration";
+import { isActiveGenerationPhase } from "../services/musicGeneration";
 import { useLyra } from "../state/LyraContext";
 import { generationErrorMessage, previewErrorMessage } from "../ui/labels";
 import { Screen } from "../ui/components";
 import "./StudioScreen.css";
-
-const DEFAULT_MOODS = ["scene-rainy-window", "temperature-sunlight", "texture-velvet"];
 
 export function rebalanceRecipeWeight(recipe: MusicRecipeV1, moodId: string, requestedWeight: number): MusicRecipeV1 {
   const current = normalizeMusicRecipe(recipe);
@@ -42,25 +40,29 @@ export function rebalanceRecipeWeight(recipe: MusicRecipeV1, moodId: string, req
 export function StudioScreen() {
   const {
     draft,
+    musicGeneration,
     musicPlayback,
-    generateTrack,
+    setMusicRecipe,
+    startMusicGeneration,
     cancelMusicGeneration,
-    previewDraft,
+    previewMusicDraft,
     stopMusic,
     saveDraft,
     discardDraft,
   } = useLyra();
   const [activeCategory, setActiveCategory] = useState(MOOD_CATALOG.categories[0].id);
-  const [recipe, setRecipe] = useState<MusicRecipeV1>(() => createMusicRecipe(DEFAULT_MOODS));
-  const [phase, setPhase] = useState<MusicGenerationPhase>("idle");
-  const [cancelling, setCancelling] = useState(false);
-  const [repairReceived, setRepairReceived] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const generationRun = useRef(0);
+  const [recipe, setRecipe] = useState<MusicRecipeV1>(() => musicGeneration.recipe);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { phase, cancelling, repairReceived, error } = musicGeneration;
   const generating = isActiveGenerationPhase(phase);
   const validating = phase === "audio";
   const editingDisabled = generating || cancelling;
   const draftPlaying = Boolean(draft && musicPlayback.status === "playing" && musicPlayback.trackId === draft.id);
+
+  const updateRecipe = (next: MusicRecipeV1) => {
+    setRecipe(next);
+    setMusicRecipe(next);
+  };
 
   const toggleMood = (moodId: string) => {
     const ids = recipe.moods.map((mood) => mood.moodId);
@@ -69,81 +71,45 @@ export function StudioScreen() {
         toast.info("ムードは1つ以上選んでください");
         return;
       }
-      setRecipe(createMusicRecipe(ids.filter((id) => id !== moodId)));
+      updateRecipe(createMusicRecipe(ids.filter((id) => id !== moodId)));
       return;
     }
     if (ids.length >= 5) {
       toast.info("選べるムードは5つまでです");
       return;
     }
-    setRecipe(createMusicRecipe([...ids, moodId]));
+    updateRecipe(createMusicRecipe([...ids, moodId]));
   };
 
   const generate = () => {
-    const run = ++generationRun.current;
-    setError(null);
-    setPhase("composing");
-    setRepairReceived(false);
-    const normalized = normalizeMusicRecipe(recipe);
-    void runMusicGeneration({
-      request: normalized,
-      generate: generateTrack,
-      onPhase: (nextPhase) => {
-        if (run !== generationRun.current) return;
-        if (nextPhase === "repairing") setRepairReceived(true);
-        setPhase(nextPhase);
-      },
-    }).catch((reason: unknown) => {
-      if (run !== generationRun.current) return;
-      setPhase("failed");
-      setError(generationErrorMessage(reason instanceof MusicGenerationPipelineError ? reason.cause : reason));
-    });
+    setActionError(null);
+    void startMusicGeneration(recipe);
   };
 
   const cancelGeneration = () => {
-    const cancelledRun = ++generationRun.current;
-    setCancelling(true);
-    setError(null);
-    void cancelMusicGeneration()
-      .then(() => {
-        if (cancelledRun !== generationRun.current) return;
-        setCancelling(false);
-        setPhase("idle");
-        setRepairReceived(false);
-      })
-      .catch((reason: unknown) => {
-        if (cancelledRun !== generationRun.current) return;
-        setCancelling(false);
-        setPhase("failed");
-        setError(generationErrorMessage(reason));
-      });
+    setActionError(null);
+    void cancelMusicGeneration().catch(() => undefined);
   };
 
   const preview = (target: MusicDraft) => {
-    setError(null);
+    setActionError(null);
     if (draftPlaying) {
-      void stopMusic().catch((reason: unknown) => setError(previewErrorMessage(reason)));
+      void stopMusic().catch((reason: unknown) => setActionError(previewErrorMessage(reason)));
       return;
     }
-    setPhase("audio");
-    void previewDraft(target, () => setPhase("audio"))
-      .then(() => setPhase("completed"))
-      .catch((reason: unknown) => {
-        setPhase("failed");
-        setError(previewErrorMessage(reason));
-      });
+    void previewMusicDraft(target);
   };
 
   const save = () => {
-    setError(null);
+    setActionError(null);
     void saveDraft()
       .then(() => toast.success("ライブラリに保存しました"))
-      .catch((reason: unknown) => setError(generationErrorMessage(reason)));
+      .catch((reason: unknown) => setActionError(generationErrorMessage(reason)));
   };
 
   const discard = () => {
-    setError(null);
-    void discardDraft().catch((reason: unknown) => setError(generationErrorMessage(reason)));
+    setActionError(null);
+    void discardDraft().catch((reason: unknown) => setActionError(generationErrorMessage(reason)));
   };
 
   return (
@@ -175,7 +141,7 @@ export function StudioScreen() {
             recipe={recipe}
             phase={phase}
             editingDisabled={editingDisabled}
-            onWeightChange={(moodId, weight) => setRecipe((current) => rebalanceRecipeWeight(current, moodId, weight))}
+            onWeightChange={(moodId, weight) => updateRecipe(rebalanceRecipeWeight(recipe, moodId, weight))}
           />
           <div className="alchemy-static-bands" aria-label="選択中のムード">
             {recipe.moods.map((selection) => (
@@ -188,9 +154,9 @@ export function StudioScreen() {
           recipe={recipe}
           draft={draft}
           phase={phase}
-          error={error}
+          error={actionError ?? error}
           playing={draftPlaying}
-          onWeightChange={(moodId, weight) => setRecipe((current) => rebalanceRecipeWeight(current, moodId, weight))}
+          onWeightChange={(moodId, weight) => updateRecipe(rebalanceRecipeWeight(recipe, moodId, weight))}
           onGenerate={generate}
           onCancel={cancelGeneration}
           onPreview={preview}
@@ -201,7 +167,7 @@ export function StudioScreen() {
           validating={validating}
           editingDisabled={editingDisabled}
           repairReceived={repairReceived}
-          onRemoveMood={(moodId) => setRecipe((current) => removeMoodFromRecipe(current, moodId))}
+          onRemoveMood={(moodId) => updateRecipe(removeMoodFromRecipe(recipe, moodId))}
         />
       </div>
     </Screen>

@@ -26,6 +26,9 @@ import { AudioEngine } from "../services/audioEngine";
 import type { validateChuckSource } from "../services/audioEngine";
 import { desktopBridge, type DesktopBridge } from "../services/desktop";
 import { browserRuntimeDiagnostics } from "../services/diagnostics";
+import { createMusicRecipe, normalizeMusicRecipe, type MusicRecipeV1 } from "../services/moodCatalog";
+import { MusicGenerationPipelineError, runMusicGeneration, type MusicGenerationPhase } from "../services/musicGeneration";
+import { generationErrorMessage, previewErrorMessage } from "../ui/labels";
 
 const INITIAL_TIMER: TimerState = {
   preset: BUILTIN_PRESETS[1],
@@ -37,6 +40,16 @@ const INITIAL_TIMER: TimerState = {
 };
 
 const defaultAudioEngine = new AudioEngine();
+const DEFAULT_MUSIC_RECIPE = createMusicRecipe(["scene-rainy-window", "temperature-sunlight", "texture-velvet"]);
+
+export interface MusicGenerationSession {
+  recipe: MusicRecipeV1;
+  phase: MusicGenerationPhase;
+  cancelling: boolean;
+  repairReceived: boolean;
+  error: string | null;
+  sessionId: number;
+}
 
 export interface LyraState {
   ready: boolean;
@@ -54,6 +67,7 @@ export interface LyraState {
   settings: AppSettingsV2;
   libraryQuery: MusicTrackListQuery;
   draft: MusicDraft | null;
+  musicGeneration: MusicGenerationSession;
   timer: TimerState;
   presets: readonly TimerPreset[];
   preset: TimerPreset;
@@ -75,8 +89,11 @@ export interface LyraState {
   savePreset(preset: TimerPreset): Promise<void>;
   deletePreset(id: string): Promise<void>;
   generateTrack(request: MusicGenerationRequest, onProgress?: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
+  setMusicRecipe(recipe: MusicRecipeV1 | ((current: MusicRecipeV1) => MusicRecipeV1)): void;
+  startMusicGeneration(recipe?: MusicRecipeV1): Promise<void>;
   cancelMusicGeneration(): Promise<void>;
   previewDraft(target: MusicDraft, onProgress?: (progress: MusicGenerationProgress) => void): Promise<MusicDraft>;
+  previewMusicDraft(target: MusicDraft): Promise<void>;
   saveDraft(): Promise<void>;
   discardDraft(): Promise<void>;
   stopMusic(): Promise<void>;
@@ -138,6 +155,14 @@ export function LyraProvider({
   const [settings, setSettings] = useState<AppSettingsV2>(DEFAULT_APP_SETTINGS);
   const [libraryQuery, setLibraryQueryState] = useState<MusicTrackListQuery>({ sort: "created_desc" });
   const [draft, setDraft] = useState<MusicDraft | null>(null);
+  const [musicGeneration, setMusicGeneration] = useState<MusicGenerationSession>({
+    recipe: DEFAULT_MUSIC_RECIPE,
+    phase: "idle",
+    cancelling: false,
+    repairReceived: false,
+    error: null,
+    sessionId: 0,
+  });
   const [preset, setPreset] = useState<TimerPreset>(BUILTIN_PRESETS[1]);
   const [presets, setPresets] = useState<readonly TimerPreset[]>(BUILTIN_PRESETS);
   const [timer, setTimer] = useState<TimerState>(INITIAL_TIMER);
@@ -150,6 +175,7 @@ export function LyraProvider({
   const taskMutationRevision = useRef(0);
   const pendingTaskMutations = useRef(0);
   const generationRevision = useRef(0);
+  const musicGenerationRun = useRef(0);
   const libraryQueryRevision = useRef(0);
   const loadStartup = useCallback(async () => {
     const generation = ++startupGeneration.current;
@@ -265,8 +291,126 @@ export function LyraProvider({
     }
   }, []);
 
+  const generateTrackOperation = useCallback(async (
+    request: MusicGenerationRequest,
+    onProgress?: (progress: MusicGenerationProgress) => void,
+  ): Promise<MusicDraft> => {
+    const revision = ++generationRevision.current;
+    if (draft && musicPlayback.trackId === draft.id) await audioEngine.stop();
+    if (revision !== generationRevision.current) throw new Error("stale music generation result was discarded");
+    const guardedProgress = onProgress
+      ? (progress: MusicGenerationProgress) => {
+          if (revision === generationRevision.current) onProgress(progress);
+        }
+      : undefined;
+    const track = await bridge.generateTrack(request, guardedProgress);
+    if (revision !== generationRevision.current) throw new Error("stale music generation result was discarded");
+    setDraft(track);
+    return track;
+  }, [audioEngine, bridge, draft, musicPlayback.trackId]);
+
+  const startMusicGeneration = useCallback(async (requestedRecipe?: MusicRecipeV1): Promise<void> => {
+    const run = ++musicGenerationRun.current;
+    const recipe = normalizeMusicRecipe(requestedRecipe ?? musicGeneration.recipe);
+    setMusicGeneration((current) => ({
+      ...current,
+      recipe,
+      phase: "composing",
+      cancelling: false,
+      repairReceived: false,
+      error: null,
+      sessionId: run,
+    }));
+    try {
+      await runMusicGeneration({
+        request: recipe,
+        generate: generateTrackOperation,
+        onPhase: (phase) => {
+          if (run !== musicGenerationRun.current) return;
+          setMusicGeneration((current) => ({
+            ...current,
+            phase,
+            repairReceived: current.repairReceived || phase === "repairing",
+          }));
+        },
+      });
+    } catch (reason) {
+      if (run !== musicGenerationRun.current) return;
+      const cause = reason instanceof MusicGenerationPipelineError ? reason.cause : reason;
+      setMusicGeneration((current) => ({
+        ...current,
+        phase: "failed",
+        cancelling: false,
+        error: generationErrorMessage(cause),
+      }));
+    }
+  }, [generateTrackOperation, musicGeneration.recipe]);
+
+  const cancelMusicGenerationOperation = useCallback(async (): Promise<void> => {
+    const run = ++musicGenerationRun.current;
+    generationRevision.current += 1;
+    setMusicGeneration((current) => ({ ...current, cancelling: true, error: null, sessionId: run }));
+    try {
+      await bridge.cancelMusicGeneration();
+      if (run !== musicGenerationRun.current) return;
+      setMusicGeneration((current) => ({
+        ...current,
+        phase: "idle",
+        cancelling: false,
+        repairReceived: false,
+        error: null,
+      }));
+    } catch (reason) {
+      if (run !== musicGenerationRun.current) return;
+      setMusicGeneration((current) => ({
+        ...current,
+        phase: "failed",
+        cancelling: false,
+        error: generationErrorMessage(reason),
+      }));
+      throw reason;
+    }
+  }, [bridge]);
+
+  const previewDraftOperation = useCallback(async (
+    target: MusicDraft,
+    onProgress?: (progress: MusicGenerationProgress) => void,
+  ): Promise<MusicDraft> => {
+    audioEngine.prepareForUserGesture();
+    prepareValidation?.();
+    if (target.audioValidation === "deferred_until_focus_ends") throw new Error("audio validation is deferred until focus ends");
+    setMusicError(null);
+    onProgress?.({ phase: "validating" });
+    const report = await (validateSource
+      ? validateSource(target.chuckSource, target.canonicalSeed)
+      : audioEngine.validateSource(target.chuckSource, target.canonicalSeed));
+    const validated = await bridge.confirmDraftValidation(target.id, report);
+    setDraft((current) => current?.id === target.id ? validated : current);
+    onProgress?.({ phase: "previewing" });
+    try {
+      await audioEngine.play({ trackId: target.id, source: target.chuckSource, seed: target.canonicalSeed });
+    } catch (error) {
+      throw new Error(`5秒音声検証は合格しましたが、再生を開始できませんでした。曲は保存できます: ${message(error)}`);
+    }
+    return validated;
+  }, [audioEngine, bridge, prepareValidation, validateSource]);
+
+  const previewMusicDraft = useCallback(async (target: MusicDraft): Promise<void> => {
+    setMusicGeneration((current) => ({ ...current, phase: "audio", error: null }));
+    try {
+      await previewDraftOperation(target);
+      setMusicGeneration((current) => ({ ...current, phase: "completed", error: null }));
+    } catch (reason) {
+      setMusicGeneration((current) => ({
+        ...current,
+        phase: "failed",
+        error: previewErrorMessage(reason),
+      }));
+    }
+  }, [previewDraftOperation]);
+
   const value = useMemo<LyraState>(() => ({
-    ready, startupError, subscriptionError, musicError, musicPlayback, retryStartup, retrySubscriptions, tasks, tracks, libraryTracks, projects, tags, settings, libraryQuery, draft, timer, presets, preset,
+    ready, startupError, subscriptionError, musicError, musicPlayback, retryStartup, retrySubscriptions, tasks, tracks, libraryTracks, projects, tags, settings, libraryQuery, draft, musicGeneration, timer, presets, preset,
     selectedTaskIds, selectedPomodoroTotal, selectedTrackId, variationSeed, focusSessionId,
     async addTask(title, list, estimate) {
       await taskMutation(async () => {
@@ -343,40 +487,17 @@ export function LyraProvider({
       if (preset.id === saved.id && (timer.status === "idle" || timer.status === "completed")) setPreset(saved);
     },
     async deletePreset(id) { await bridge.deleteTimerPreset(id); setPresets((current) => current.filter((candidate) => candidate.id !== id)); },
-    async generateTrack(request, onProgress) {
-      const revision = ++generationRevision.current;
-      if (draft && musicPlayback.trackId === draft.id) await audioEngine.stop();
-      if (revision !== generationRevision.current) throw new Error("stale music generation result was discarded");
-      const guardedProgress = onProgress
-        ? (progress: MusicGenerationProgress) => {
-            if (revision === generationRevision.current) onProgress(progress);
-          }
-        : undefined;
-      const track = await bridge.generateTrack(request, guardedProgress);
-      if (revision !== generationRevision.current) throw new Error("stale music generation result was discarded");
-      setDraft(track);
-      return track;
+    generateTrack: generateTrackOperation,
+    setMusicRecipe(recipe) {
+      setMusicGeneration((current) => ({
+        ...current,
+        recipe: normalizeMusicRecipe(typeof recipe === "function" ? recipe(current.recipe) : recipe),
+      }));
     },
-    async cancelMusicGeneration() { generationRevision.current += 1; await bridge.cancelMusicGeneration(); },
-    async previewDraft(target, onProgress) {
-      audioEngine.prepareForUserGesture();
-      prepareValidation?.();
-      if (target.audioValidation === "deferred_until_focus_ends") throw new Error("audio validation is deferred until focus ends");
-      setMusicError(null);
-      onProgress?.({ phase: "validating" });
-      const report = await (validateSource
-        ? validateSource(target.chuckSource, target.canonicalSeed)
-        : audioEngine.validateSource(target.chuckSource, target.canonicalSeed));
-      const validated = await bridge.confirmDraftValidation(target.id, report);
-      setDraft((current) => current?.id === target.id ? validated : current);
-      onProgress?.({ phase: "previewing" });
-      try {
-        await audioEngine.play({ trackId: target.id, source: target.chuckSource, seed: target.canonicalSeed });
-      } catch (error) {
-        throw new Error(`5秒音声検証は合格しましたが、再生を開始できませんでした。曲は保存できます: ${message(error)}`);
-      }
-      return validated;
-    },
+    startMusicGeneration,
+    cancelMusicGeneration: cancelMusicGenerationOperation,
+    previewDraft: previewDraftOperation,
+    previewMusicDraft,
     async saveDraft() { if (!draft) return; if (musicPlayback.trackId === draft.id) await audioEngine.stop(); const track = await bridge.saveDraft(draft.id); libraryQueryRevision.current += 1; setTracks((current) => [track, ...current]); setLibraryTracks((current) => [track, ...current]); setDraft(null); },
     async discardDraft() {
       if (!draft) return;
@@ -509,10 +630,10 @@ export function LyraProvider({
     },
     async openDataDirectory() { await bridge.openDataDirectory(); },
   }), [
-    audioEngine, bridge, draft, focusSessionId,
+    audioEngine, bridge, cancelMusicGenerationOperation, draft, focusSessionId, generateTrackOperation,
     getBrowserDiagnostics, libraryQuery, musicError, musicPlayback, playStoredTrack, preset, presets, projects, ready,
-    prepareValidation, retryStartup, retrySubscriptions, selectedPomodoroTotal, selectedTaskIds, selectedTrackId,
-    libraryTracks, settings, startupError, subscriptionError, tags, taskMutation, tasks, timer, tracks, validateSource, variationSeed,
+    previewDraftOperation, previewMusicDraft, retryStartup, retrySubscriptions, selectedPomodoroTotal, selectedTaskIds, selectedTrackId,
+    libraryTracks, musicGeneration, settings, startMusicGeneration, startupError, subscriptionError, tags, taskMutation, tasks, timer, tracks, variationSeed,
   ]);
 
   return <LyraContext.Provider value={value}>{children}</LyraContext.Provider>;
