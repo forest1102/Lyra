@@ -1,21 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { AppSidebar, type ScreenId } from "./components/AppSidebar";
+import { Toaster } from "./components/ui/sonner";
+import { Spinner } from "./components/ui/spinner";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { FocusScreen } from "./screens/FocusScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { StudioScreen } from "./screens/StudioScreen";
 import { TasksScreen } from "./screens/TasksScreen";
 import { useLyra } from "./state/LyraContext";
+import { isActiveGenerationPhase } from "./services/musicGeneration";
 import { Button } from "./ui/components";
-
-type ScreenId = "focus" | "tasks" | "studio" | "library" | "settings";
-
-const destinations: Array<{ id: ScreenId; label: string; icon: string }> = [
-  { id: "focus", label: "集中", icon: "◉" },
-  { id: "tasks", label: "タスク", icon: "✓" },
-  { id: "studio", label: "BGM制作", icon: "♫" },
-  { id: "library", label: "ライブラリ", icon: "▤" },
-  { id: "settings", label: "設定", icon: "⚙" }
-];
 
 const screens: Record<ScreenId, () => React.JSX.Element> = {
   focus: FocusScreen,
@@ -27,31 +23,37 @@ const screens: Record<ScreenId, () => React.JSX.Element> = {
 
 export function App() {
   const [active, setActive] = useState<ScreenId>("focus");
-  const { stopMusic } = useLyra();
+  const { musicGeneration, stopMusic } = useLyra();
+  const notifiedGeneration = useRef(0);
   const ActiveScreen = screens[active];
+  const generationBusy = isActiveGenerationPhase(musicGeneration.phase) || musicGeneration.cancelling;
+
+  useEffect(() => {
+    const completed = musicGeneration.phase === "ready" || musicGeneration.phase === "deferred";
+    const failed = musicGeneration.phase === "failed";
+    if ((!completed && !failed) || musicGeneration.sessionId <= notifiedGeneration.current) return;
+    notifiedGeneration.current = musicGeneration.sessionId;
+    if (active === "studio") return;
+    if (completed) {
+      toast.success("音楽が完成しました", {
+        action: { label: "確認する", onClick: () => setActive("studio") },
+      });
+    } else {
+      toast.error("音楽の生成に失敗しました", {
+        action: { label: "確認する", onClick: () => setActive("studio") },
+      });
+    }
+  }, [active, musicGeneration.phase, musicGeneration.sessionId]);
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">✦</span><span>Lyra</span></div>
-        <nav aria-label="メインナビゲーション">
-          {destinations.map((destination) => (
-            <button
-              key={destination.id}
-              className={`nav-item ${active === destination.id ? "nav-item-active" : ""}`}
-              aria-current={active === destination.id ? "page" : undefined}
-              onClick={() => setActive(destination.id)}
-            >
-              <span aria-hidden="true">{destination.icon}</span>{destination.label}
-            </button>
-          ))}
-        </nav>
-        <button className="nav-item stop-music" onClick={() => void stopMusic()}>
-          <span aria-hidden="true">■</span>音楽停止
-        </button>
-        <p className="sidebar-caption">LOCAL FOCUS COMPANION</p>
-      </aside>
-      <div className="content"><ActiveScreen /></div>
-    </div>
+    <TooltipProvider>
+      <div className="app-shell">
+        <AppSidebar active={active} musicGenerating={generationBusy} onNavigate={setActive} onStopMusic={() => void stopMusic()} />
+        <div className="content">
+          {active === "tasks" ? <TasksScreen onStartFocus={() => setActive("focus")} /> : <ActiveScreen />}
+        </div>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -66,11 +68,20 @@ export function AppGate() {
       </div>
     );
   }
-  if (!lyra.ready) return <div className="center-state" aria-live="polite">Lyraを読み込んでいます…</div>;
+  if (!lyra.ready) return <div className="center-state" aria-live="polite"><Spinner className="size-5 text-primary" />Lyraを読み込んでいます…</div>;
   return (
     <>
-      {lyra.musicError ? <div className="error-banner" role="alert">{lyra.musicError}</div> : null}
+      {lyra.subscriptionError || lyra.musicError ? <div className="error-stack">
+        {lyra.subscriptionError ? (
+          <div className="error-banner" role="alert">
+            <span>イベントを購読できませんでした: {lyra.subscriptionError}</span>
+            <Button label="再接続" onClick={lyra.retrySubscriptions} />
+          </div>
+        ) : null}
+        {lyra.musicError ? <div className="error-banner" role="alert">{lyra.musicError}</div> : null}
+      </div> : null}
       <App />
+      <Toaster theme="dark" position="bottom-right" richColors />
     </>
   );
 }

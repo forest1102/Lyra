@@ -5,6 +5,7 @@ import {
   connectSystemOutput,
   injectChuckSeed,
   isDraftValidationReportSafe,
+  scheduleMasterVolume,
   type AudioDeck,
   type AudioHost,
 } from "./audioEngine";
@@ -24,6 +25,7 @@ class FakeHost implements AudioHost {
   readonly errors: Array<() => void> = [];
   suspend = vi.fn(async () => undefined);
   resume = vi.fn(async () => undefined);
+  setVolume = vi.fn();
   prepareForUserGesture = vi.fn();
   validateSource = vi.fn(async () => ({ durationMs: 5000 as const, elapsedAudioSeconds: 5, peak: 0.5, nonSilentMs: 500, nonFiniteSamples: 0, processorErrors: 0 }));
 
@@ -54,6 +56,40 @@ describe("AudioEngine", () => {
     expect(host.decks[1].fades).toContainEqual([1, 2]);
     expect(host.decks[1].starts[0]).toContain("Math.srandom(2);");
     expect(engine.getState()).toEqual({ status: "playing", trackId: "second", disabled: false });
+  });
+
+  test("applies volume to the host output without rebuilding decks", async () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+    await engine.play({ trackId: "track", source: SOURCE, seed: 7 });
+
+    engine.setVolume(0.42);
+
+    expect(host.setVolume).toHaveBeenCalledWith(0.42);
+    expect(host.decks).toHaveLength(1);
+  });
+
+  test("uses the configured crossfade for subsequent track changes", async () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+    engine.setCrossfadeSeconds(6.5);
+
+    await engine.play({ trackId: "first", source: SOURCE, seed: 1 });
+    await engine.play({ trackId: "second", source: SOURCE, seed: 2 });
+
+    expect(host.decks[0].fades).toContainEqual([0, 6.5]);
+    expect(host.decks[1].fades).toContainEqual([1, 6.5]);
+  });
+
+  test("clamps unsafe audio setting values", () => {
+    const host = new FakeHost();
+    const engine = new AudioEngine(host);
+
+    engine.setVolume(4);
+    engine.setCrossfadeSeconds(-3);
+
+    expect(host.setVolume).toHaveBeenCalledWith(2);
+    expect(engine.getCrossfadeSeconds()).toBe(0);
   });
 
   test("pauses, resumes, and stops client playback", async () => {
@@ -128,6 +164,10 @@ describe("AudioEngine", () => {
 
 test("connects playback to the system default and mutes only E2E output", () => {
   const destination = {} as AudioDestinationNode;
+  const master = {
+    gain: { value: 1.5 },
+    connect: vi.fn(),
+  } as unknown as GainNode;
   const output = {
     gain: { value: 1 },
     connect: vi.fn(),
@@ -135,16 +175,46 @@ test("connects playback to the system default and mutes only E2E output", () => 
   const limiter = { connect: vi.fn() } as unknown as DynamicsCompressorNode;
   const context = {
     destination,
-    createGain: vi.fn(() => output),
+    createGain: vi.fn()
+      .mockReturnValueOnce(master)
+      .mockReturnValueOnce(output),
   } as unknown as AudioContext;
 
-  expect(connectSystemOutput(context, limiter, true)).toBe(output);
+  expect(connectSystemOutput(context, limiter, true)).toEqual({ master, output });
+  expect(master.connect).toHaveBeenCalledWith(limiter);
   expect(limiter.connect).toHaveBeenCalledWith(output);
   expect(output.connect).toHaveBeenCalledWith(destination);
   expect(output.gain.value).toBe(0);
 
+  const unmutedMaster = {
+    gain: { value: 1.5 },
+    connect: vi.fn(),
+  } as unknown as GainNode;
+  const unmutedOutput = {
+    gain: { value: 0 },
+    connect: vi.fn(),
+  } as unknown as GainNode;
+  vi.mocked(context.createGain)
+    .mockReturnValueOnce(unmutedMaster)
+    .mockReturnValueOnce(unmutedOutput);
   connectSystemOutput(context, limiter, false);
-  expect(output.gain.value).toBe(1);
+  expect(unmutedOutput.gain.value).toBe(1);
+});
+
+test("ramps the shared master gain over twenty milliseconds after cancelling automation", () => {
+  const gain = {
+    value: 1.5,
+    cancelScheduledValues: vi.fn(),
+    setValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
+  } as unknown as AudioParam;
+  const master = { gain } as GainNode;
+
+  scheduleMasterVolume(master, 12, 4);
+
+  expect(gain.cancelScheduledValues).toHaveBeenCalledWith(12);
+  expect(gain.setValueAtTime).toHaveBeenCalledWith(1.5, 12);
+  expect(gain.linearRampToValueAtTime).toHaveBeenCalledWith(2, 12.02);
 });
 
 test("prepares and reuses a validation AudioContext before asynchronous work", async () => {

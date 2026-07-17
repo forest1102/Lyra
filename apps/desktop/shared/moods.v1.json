@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "scene",
+      "label": "情景",
+      "moods": [
+        { "id": "scene-rainy-window", "label": "雨の窓辺", "image": "/moods/scene-rainy-window.webp", "color": "#7894a5", "vectors": { "brightness": 0.38, "density": 0.42, "motion": 0.28, "warmth": 0.54, "space": 0.90, "pulse": 0.25, "melody": 0.35, "organic": 0.72 } },
+        { "id": "scene-quiet-library", "label": "静かな書庫", "image": "/moods/scene-quiet-library.webp", "color": "#8b785b", "vectors": { "brightness": 0.42, "density": 0.30, "motion": 0.18, "warmth": 0.72, "space": 0.55, "pulse": 0.18, "melody": 0.48, "organic": 0.62 } },
+        { "id": "scene-deep-forest", "label": "深い森", "image": "/moods/scene-deep-forest.webp", "color": "#416657", "vectors": { "brightness": 0.30, "density": 0.48, "motion": 0.32, "warmth": 0.58, "space": 0.78, "pulse": 0.30, "melody": 0.32, "organic": 0.96 } },
+        { "id": "scene-seaside", "label": "遠い海辺", "image": "/moods/scene-seaside.webp", "color": "#5f8fa1", "vectors": { "brightness": 0.68, "density": 0.24, "motion": 0.38, "warmth": 0.60, "space": 0.94, "pulse": 0.34, "melody": 0.40, "organic": 0.78 } },
+        { "id": "scene-night-train", "label": "夜行列車", "image": "/moods/scene-night-train.webp", "color": "#4d536b", "vectors": { "brightness": 0.34, "density": 0.50, "motion": 0.58, "warmth": 0.48, "space": 0.66, "pulse": 0.72, "melody": 0.38, "organic": 0.34 } },
+        { "id": "scene-snow-room", "label": "雪の部屋", "image": "/moods/scene-snow-room.webp", "color": "#a9b7b5", "vectors": { "brightness": 0.72, "density": 0.18, "motion": 0.12, "warmth": 0.30, "space": 0.84, "pulse": 0.12, "melody": 0.52, "organic": 0.50 } }
+      ]
+    },
+    {
+      "id": "time",
+      "label": "時間帯",
+      "moods": [
+        { "id": "time-dawn", "label": "夜明け", "image": "/moods/time-dawn.webp", "color": "#c8a27c", "vectors": { "brightness": 0.72, "density": 0.28, "motion": 0.30, "warmth": 0.70, "space": 0.72, "pulse": 0.28, "melody": 0.62, "organic": 0.58 } },
+        { "id": "time-morning", "label": "朝", "image": "/moods/time-morning.webp", "color": "#d7c786", "vectors": { "brightness": 0.86, "density": 0.42, "motion": 0.48, "warmth": 0.74, "space": 0.55, "pulse": 0.52, "melody": 0.68, "organic": 0.50 } },
+        { "id": "time-noon", "label": "昼下がり", "image": "/moods/time-noon.webp", "color": "#b9c58a", "vectors": { "brightness": 0.78, "density": 0.50, "motion": 0.42, "warmth": 0.78, "space": 0.48, "pulse": 0.48, "melody": 0.56, "organic": 0.46 } },
+        { "id": "time-dusk", "label": "黄昏", "image": "/moods/time-dusk.webp", "color": "#aa755f", "vectors": { "brightness": 0.48, "density": 0.38, "motion": 0.25, "warmth": 0.82, "space": 0.78, "pulse": 0.28, "melody": 0.70, "organic": 0.58 } },
+        { "id": "time-midnight", "label": "深夜", "image": "/moods/time-midnight.webp", "color": "#384664", "vectors": { "brightness": 0.24, "density": 0.26, "motion": 0.18, "warmth": 0.34, "space": 0.92, "pulse": 0.20, "melody": 0.38, "organic": 0.34 } },
+        { "id": "time-blue-hour", "label": "蒼い時間", "image": "/moods/time-blue-hour.webp", "color": "#596f88", "vectors": { "brightness": 0.44, "density": 0.32, "motion": 0.24, "warmth": 0.42, "space": 0.88, "pulse": 0.25, "melody": 0.64, "organic": 0.44 } }
+      ]
+    },
+    {
+      "id": "texture",
+      "label": "質感",
+      "moods": [
+        { "id": "texture-velvet", "label": "ベルベット", "image": "/moods/texture-velvet.webp", "color": "#765966", "vectors": { "brightness": 0.32, "density": 0.58, "motion": 0.20, "warmth": 0.82, "space": 0.55, "pulse": 0.24, "melody": 0.52, "organic": 0.68 } },
+        { "id": "texture-glass", "label": "ガラス", "image": "/moods/texture-glass.webp", "color": "#8cb2b7", "vectors": { "brightness": 0.92, "density": 0.30, "motion": 0.36, "warmth": 0.24, "space": 0.80, "pulse": 0.34, "melody": 0.72, "organic": 0.22 } },
+        { "id": "texture-paper", "label": "紙", "image": "/moods/texture-paper.webp", "color": "#bcae8f", "vectors": { "brightness": 0.64, "density": 0.36, "motion": 0.22, "warmth": 0.76, "space": 0.46, "pulse": 0.24, "melody": 0.50, "organic": 0.82 } },
+        { "id": "texture-mist", "label": "霧", "image": "/moods/texture-mist.webp", "color": "#83918e", "vectors": { "brightness": 0.42, "density": 0.20, "motion": 0.16, "warmth": 0.38, "space": 0.96, "pulse": 0.14, "melody": 0.32, "organic": 0.62 } },
+        { "id": "texture-wood", "label": "木肌", "image": "/moods/texture-wood.webp", "color": "#8a6947", "vectors": { "brightness": 0.48, "density": 0.44, "motion": 0.32, "warmth": 0.90, "space": 0.46, "pulse": 0.42, "melody": 0.54, "organic": 0.94 } },
+        { "id": "texture-metal", "label": "金属", "image": "/moods/texture-metal.webp", "color": "#79817e", "vectors": { "brightness": 0.76, "density": 0.56, "motion": 0.52, "warmth": 0.20, "space": 0.62, "pulse": 0.64, "melody": 0.42, "organic": 0.14 } }
+      ]
+    },
+    {
+      "id": "temperature",
+      "label": "温度",
+      "moods": [
+        { "id": "temperature-ember", "label": "熾火", "image": "/moods/temperature-ember.webp", "color": "#b66b4f", "vectors": { "brightness": 0.58, "density": 0.52, "motion": 0.36, "warmth": 0.98, "space": 0.40, "pulse": 0.52, "melody": 0.48, "organic": 0.72 } },
+        { "id": "temperature-sunlight", "label": "陽だまり", "image": "/moods/temperature-sunlight.webp", "color": "#d2bd73", "vectors": { "brightness": 0.88, "density": 0.34, "motion": 0.28, "warmth": 0.94, "space": 0.54, "pulse": 0.30, "melody": 0.70, "organic": 0.60 } },
+        { "id": "temperature-neutral", "label": "中庸", "image": "/moods/temperature-neutral.webp", "color": "#8c8d7d", "vectors": { "brightness": 0.54, "density": 0.48, "motion": 0.42, "warmth": 0.52, "space": 0.52, "pulse": 0.46, "melody": 0.50, "organic": 0.50 } },
+        { "id": "temperature-cool-breeze", "label": "涼風", "image": "/moods/temperature-cool-breeze.webp", "color": "#7196a0", "vectors": { "brightness": 0.70, "density": 0.24, "motion": 0.42, "warmth": 0.28, "space": 0.82, "pulse": 0.38, "melody": 0.58, "organic": 0.70 } },
+        { "id": "temperature-frost", "label": "霜", "image": "/moods/temperature-frost.webp", "color": "#9eafb0", "vectors": { "brightness": 0.84, "density": 0.20, "motion": 0.16, "warmth": 0.12, "space": 0.84, "pulse": 0.18, "melody": 0.58, "organic": 0.40 } },
+        { "id": "temperature-rain-cool", "label": "雨冷え", "image": "/moods/temperature-rain-cool.webp", "color": "#607a82", "vectors": { "brightness": 0.36, "density": 0.38, "motion": 0.30, "warmth": 0.22, "space": 0.88, "pulse": 0.30, "melody": 0.38, "organic": 0.76 } }
+      ]
+    },
+    {
+      "id": "energy",
+      "label": "エネルギー",
+      "moods": [
+        { "id": "energy-still", "label": "静止", "image": "/moods/energy-still.webp", "color": "#69706d", "vectors": { "brightness": 0.42, "density": 0.18, "motion": 0.06, "warmth": 0.52, "space": 0.88, "pulse": 0.06, "melody": 0.32, "organic": 0.54 } },
+        { "id": "energy-breath", "label": "呼吸", "image": "/moods/energy-breath.webp", "color": "#718b78", "vectors": { "brightness": 0.52, "density": 0.30, "motion": 0.24, "warmth": 0.62, "space": 0.74, "pulse": 0.34, "melody": 0.42, "organic": 0.88 } },
+        { "id": "energy-flow", "label": "流れ", "image": "/moods/energy-flow.webp", "color": "#648f91", "vectors": { "brightness": 0.60, "density": 0.44, "motion": 0.48, "warmth": 0.54, "space": 0.68, "pulse": 0.52, "melody": 0.58, "organic": 0.72 } },
+        { "id": "energy-steady", "label": "一定", "image": "/moods/energy-steady.webp", "color": "#84905e", "vectors": { "brightness": 0.62, "density": 0.54, "motion": 0.56, "warmth": 0.58, "space": 0.48, "pulse": 0.72, "melody": 0.48, "organic": 0.46 } },
+        { "id": "energy-drive", "label": "推進", "image": "/moods/energy-drive.webp", "color": "#a0a354", "vectors": { "brightness": 0.74, "density": 0.68, "motion": 0.76, "warmth": 0.62, "space": 0.40, "pulse": 0.88, "melody": 0.56, "organic": 0.38 } },
+        { "id": "energy-spark", "label": "閃き", "image": "/moods/energy-spark.webp", "color": "#c2bc64", "vectors": { "brightness": 0.94, "density": 0.58, "motion": 0.70, "warmth": 0.72, "space": 0.50, "pulse": 0.76, "melody": 0.82, "organic": 0.32 } }
+      ]
+    }
+  ]
+}

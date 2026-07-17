@@ -261,7 +261,7 @@ fn validate_audio_parameter_ranges(tokens: &[&Token<'_>]) -> Result<(), SourcePo
         }
         let allowed = match property {
             "gain" => (0.0..=1.0).contains(&value),
-            "freq" => (20.0..=20_000.0).contains(&value),
+            "freq" => (0.01..=20_000.0).contains(&value),
             "pan" => (-1.0..=1.0).contains(&value),
             "mix" | "width" => (0.0..=1.0).contains(&value),
             "feedback" => (0.0..=0.99).contains(&value),

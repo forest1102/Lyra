@@ -1,4 +1,4 @@
-use lyra_core::{AddTask, Database, TaskList};
+use lyra_core::{AddTaskV2, Database, Recurrence, TaskList, TaskPriority, TaskStatus};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -48,7 +48,15 @@ impl McpServer {
                             "properties": {
                                 "title": { "type": "string", "minLength": 1, "maxLength": 200 },
                                 "list": { "type": "string", "enum": ["today", "backlog"] },
-                                "estimatedPomodoros": { "type": "integer", "minimum": 1, "maximum": 99 }
+                                "estimatedPomodoros": { "type": "integer", "minimum": 1, "maximum": 99 },
+                                "priority": { "type": "string", "enum": ["none", "low", "medium", "high"] },
+                                "projectId": { "type": "string" },
+                                "parentId": { "type": "string" },
+                                "notes": { "type": "string" },
+                                "plannedDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+                                "dueDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+                                "recurrence": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+                                "tagIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
                             }
                         },
                         "annotations": {
@@ -80,10 +88,23 @@ impl McpServer {
             Ok(input) => input,
             Err(error) => return tool_error(id, &format!("invalid arguments: {error}")),
         };
-        match self.database.add_task(AddTask {
+        let status = match input.list {
+            TaskList::Today => TaskStatus::Active,
+            TaskList::Backlog => TaskStatus::Inbox,
+        };
+        let planned_date = input.planned_date;
+        match self.database.add_task_v2(AddTaskV2 {
             title: input.title,
-            list: input.list,
+            status,
+            priority: input.priority,
             estimated_pomodoros: input.estimated_pomodoros,
+            project_id: input.project_id,
+            parent_id: input.parent_id,
+            notes: input.notes,
+            planned_date,
+            due_date: input.due_date,
+            recurrence: input.recurrence,
+            tag_ids: input.tag_ids,
         }) {
             Ok(task) => {
                 let text = serde_json::to_string(&task).unwrap_or_else(|_| "task added".into());
@@ -108,6 +129,17 @@ struct AddTaskArguments {
     title: String,
     list: TaskList,
     estimated_pomodoros: Option<i64>,
+    #[serde(default)]
+    priority: TaskPriority,
+    project_id: Option<String>,
+    parent_id: Option<String>,
+    #[serde(default)]
+    notes: String,
+    planned_date: Option<String>,
+    due_date: Option<String>,
+    recurrence: Option<Recurrence>,
+    #[serde(default)]
+    tag_ids: Vec<String>,
 }
 
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {

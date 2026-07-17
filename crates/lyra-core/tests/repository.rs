@@ -19,6 +19,9 @@ fn track_fixture(directory: &Path, parent_track_id: Option<String>, seed: i64) -
             .into(),
         canonical_seed: seed,
         directory: directory.to_path_buf(),
+        recipe_version: None,
+        recipe_json: None,
+        structure_family: None,
     }
 }
 
@@ -164,6 +167,72 @@ fn rolls_back_v2_schema_change_when_migration_version_cannot_be_recorded() {
 }
 
 #[test]
+fn rolls_back_v4_when_v5_fails_in_the_same_migration_transaction() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("failed-v5.db");
+    {
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+                INSERT INTO schema_migrations VALUES(3, '2026-07-15T00:00:00Z');
+                CREATE TABLE tasks (
+                  id TEXT PRIMARY KEY, title TEXT NOT NULL, list TEXT NOT NULL,
+                  completed INTEGER NOT NULL DEFAULT 0, estimated_pomodoros INTEGER,
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
+                INSERT INTO tasks VALUES(
+                  'task-1', 'Preserve me', 'today', 0, 1,
+                  '2026-07-15T00:00:00Z', '2026-07-15T00:00:00Z'
+                );
+                CREATE TABLE music_tracks (
+                  id TEXT PRIMARY KEY, parent_track_id TEXT REFERENCES music_tracks(id), title TEXT NOT NULL,
+                  description TEXT NOT NULL, theme TEXT NOT NULL, brightness TEXT NOT NULL,
+                  density TEXT NOT NULL, motion TEXT NOT NULL, bpm INTEGER NOT NULL, tail_seconds INTEGER NOT NULL,
+                  source_path TEXT NOT NULL UNIQUE, source_sha256 TEXT NOT NULL, canonical_seed INTEGER NOT NULL,
+                  rating TEXT, favorite INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+                  arrangement TEXT NOT NULL DEFAULT 'ambient'
+                );
+                CREATE TRIGGER reject_v5
+                BEFORE INSERT ON schema_migrations
+                WHEN NEW.version = 5
+                BEGIN
+                  SELECT RAISE(ABORT, 'reject v5');
+                END;
+                "#,
+            )
+            .unwrap();
+    }
+
+    assert!(Database::open(&path).is_err());
+
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let version: i64 = connection
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let task_status_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'status'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, 3);
+    assert_eq!(task_status_columns, 0);
+    assert_eq!(
+        connection
+            .query_row("SELECT title FROM tasks WHERE id = 'task-1'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+        "Preserve me"
+    );
+}
+
+#[test]
 fn adds_and_updates_tasks_in_today_and_backlog() {
     let db = Database::open_in_memory().unwrap();
     let today = db
@@ -229,6 +298,17 @@ fn completes_one_focus_session_linked_to_multiple_tasks() {
     assert_eq!(db.completed_focus_count().unwrap(), 1);
     assert!(!db.get_task(&first.id).unwrap().unwrap().completed);
     assert!(db.get_task(&second.id).unwrap().unwrap().completed);
+}
+
+#[test]
+fn rejects_negative_focus_elapsed_seconds_without_completing_the_session() {
+    let db = Database::open_in_memory().unwrap();
+    let session = db.start_focus_session(&[], "standard", None).unwrap();
+
+    assert!(db.complete_focus_session(&session.id, -1, &[]).is_err());
+    let stored = db.get_focus_session(&session.id).unwrap().unwrap();
+    assert_eq!(stored.status, FocusSessionStatus::Running);
+    assert_eq!(stored.elapsed_seconds, 0);
 }
 
 #[test]

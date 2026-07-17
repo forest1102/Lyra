@@ -16,7 +16,7 @@ describe("日本語UIラベル", () => {
   });
 
   test("生成段階を2段階で表示する", () => {
-    expect(generationProgressLabel("coding")).toContain("1/2");
+    expect(generationProgressLabel("composing")).toContain("1/2");
     expect(generationProgressLabel("audio")).toContain("2/2");
     expect(generationProgressLabel("ready")).toContain("検証して再生");
     expect(generationProgressLabel("deferred")).toContain("集中終了後");

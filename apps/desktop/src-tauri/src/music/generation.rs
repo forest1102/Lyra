@@ -2,6 +2,7 @@ use crate::music::codex_client::{
     CodexClient, GenerationControls, GenerationPrompt, GenerationTurn, MUSIC_GENERATION_MODEL,
 };
 use crate::music::validator::{AudioValidation, StaticValidator, ValidatedGeneration};
+use lyra_core::MusicRecipeV1;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -73,6 +74,9 @@ pub struct GeneratedMusicDraft {
     pub source_sha256: String,
     pub canonical_seed: i64,
     pub audio_validation: String,
+    pub recipe_version: Option<i64>,
+    pub recipe_json: Option<String>,
+    pub structure_family: String,
 }
 
 #[derive(Debug, Error)]
@@ -105,24 +109,92 @@ impl<B: GenerationBackend> GenerationService<B> {
         controls: GenerationControls,
         focus_active: bool,
     ) -> Result<GeneratedMusicDraft, GenerationError> {
-        self.generate_with_reporter(controls, focus_active, |record| eprintln!("{record}"))
+        let prompt = GenerationPrompt::new(controls);
+        self.generate_prompt(prompt, focus_active, |_| {}, |record| eprintln!("{record}"))
     }
 
+    pub fn generate_with_progress<F>(
+        &mut self,
+        controls: GenerationControls,
+        focus_active: bool,
+        on_progress: F,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+    {
+        let prompt = GenerationPrompt::new(controls);
+        self.generate_prompt(prompt, focus_active, on_progress, |record| {
+            eprintln!("{record}")
+        })
+    }
+
+    pub fn generate_recipe(
+        &mut self,
+        recipe: MusicRecipeV1,
+        focus_active: bool,
+    ) -> Result<GeneratedMusicDraft, GenerationError> {
+        let prompt = GenerationPrompt::from_recipe(recipe)
+            .map_err(|error| GenerationError::Validation(error.to_string()))?;
+        self.generate_prompt(prompt, focus_active, |_| {}, |record| eprintln!("{record}"))
+    }
+
+    pub fn generate_recipe_with_progress<F>(
+        &mut self,
+        recipe: MusicRecipeV1,
+        focus_active: bool,
+        on_progress: F,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+    {
+        let prompt = GenerationPrompt::from_recipe(recipe)
+            .map_err(|error| GenerationError::Validation(error.to_string()))?;
+        self.generate_prompt(prompt, focus_active, on_progress, |record| {
+            eprintln!("{record}")
+        })
+    }
+
+    #[cfg(test)]
     fn generate_with_reporter(
         &mut self,
         controls: GenerationControls,
         focus_active: bool,
         reporter: impl FnOnce(&str),
     ) -> Result<GeneratedMusicDraft, GenerationError> {
+        let prompt = GenerationPrompt::new(controls);
+        self.generate_prompt(prompt, focus_active, |_| {}, reporter)
+    }
+
+    fn generate_prompt<F, R>(
+        &mut self,
+        prompt: GenerationPrompt,
+        focus_active: bool,
+        mut on_progress: F,
+        reporter: R,
+    ) -> Result<GeneratedMusicDraft, GenerationError>
+    where
+        F: FnMut(&'static str),
+        R: FnOnce(&str),
+    {
         let total_started = Instant::now();
         let mut metrics = GenerationMetrics::default();
         let result = (|| {
-            let prompt = GenerationPrompt::new(controls.clone());
+            let controls = prompt.controls().clone();
+            let recipe_version = prompt.resolved_recipe().map(|_| 1);
+            let recipe_json = prompt.resolved_recipe().map(|resolved| {
+                serde_json::to_string(&resolved.recipe).expect("resolved recipe is serializable")
+            });
+            let structure_family = prompt
+                .resolved_recipe()
+                .map(|resolved| resolved.structure_family.clone())
+                .unwrap_or_else(|| controls.arrangement.clone());
+            on_progress("composing");
             let initial_started = Instant::now();
             let turn = self.backend.generate(&prompt);
             metrics.initial_ms = initial_started.elapsed().as_millis();
             let turn = turn.map_err(GenerationError::Backend)?;
 
+            on_progress("source_validating");
             let validation_started = Instant::now();
             let first_validation = self.validate(&turn.output, focus_active);
             metrics.validation_ms = validation_started.elapsed().as_millis();
@@ -130,11 +202,13 @@ impl<B: GenerationBackend> GenerationService<B> {
                 Ok(validated) => validated,
                 Err(first_error) => {
                     metrics.repaired = true;
+                    on_progress("repairing");
                     let repair_started = Instant::now();
                     let repaired = self.backend.repair(&turn.thread_id, &prompt, &first_error);
                     metrics.repair_ms = repair_started.elapsed().as_millis();
                     let repaired = repaired.map_err(GenerationError::Backend)?;
 
+                    on_progress("source_validating");
                     let validation_started = Instant::now();
                     let repaired_validation = self.validate(&repaired, focus_active);
                     metrics.validation_ms += validation_started.elapsed().as_millis();
@@ -166,6 +240,9 @@ impl<B: GenerationBackend> GenerationService<B> {
                     AudioValidation::DeferredUntilFocusEnds => "deferred_until_focus_ends",
                 }
                 .into(),
+                recipe_version,
+                recipe_json,
+                structure_family,
             })
         })();
         metrics.total_ms = total_started.elapsed().as_millis();

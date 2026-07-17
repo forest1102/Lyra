@@ -64,3 +64,18 @@ fn a_new_focus_can_start_after_a_completed_break() {
     assert_eq!(next_focus.status, TimerStatus::Running);
     assert_eq!(next_focus.remaining_seconds, 1_500);
 }
+
+#[test]
+fn manually_ending_early_resets_the_next_focus_to_the_full_preset() {
+    let engine = TimerEngine::new(preset());
+    engine.dispatch(TimerAction::Start, 0).unwrap();
+    engine.dispatch(TimerAction::Pause, 60_000).unwrap();
+    let ended = engine.dispatch(TimerAction::End, 60_000).unwrap();
+    assert_eq!(ended.phase, TimerPhase::Focus);
+    assert_eq!(ended.remaining_seconds, 1_500);
+
+    let restarted = engine.dispatch(TimerAction::Start, 120_000).unwrap();
+    assert_eq!(restarted.status, TimerStatus::Running);
+    assert_eq!(restarted.remaining_seconds, 1_500);
+    assert_eq!(restarted.deadline_ms, Some(1_620_000));
+}

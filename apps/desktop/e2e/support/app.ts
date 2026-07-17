@@ -7,13 +7,16 @@ export async function waitForAppReady(): Promise<void> {
 
 export async function openScreen(label: string): Promise<void> {
   await $(`button=${label}`).click();
-  await expect($(`h1=${label}`)).toBeDisplayed();
-}
-
-export function backlogButton() {
-  return $("//button[starts-with(normalize-space(.), 'あとで ')]");
+  const selector = {
+    "集中": ".focus-screen",
+    "タスク": ".tasks-screen",
+    "Music Alchemy": ".alchemy-screen",
+    "ライブラリ": ".library-screen",
+    "設定": ".settings-screen",
+  }[label] ?? `h1=${label}`;
+  await expect($(selector)).toBeDisplayed();
 }
 
 export function taskRow(title: string) {
-  return $(`//div[contains(@class, 'task-row')][.//strong[normalize-space()=${JSON.stringify(title)}]]`);
+  return $(`//article[contains(@class, 'task-row-shell')][.//strong[normalize-space()=${JSON.stringify(title)}]]`);
 }

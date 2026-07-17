@@ -13,3 +13,6 @@ apps/desktop/e2e/artifacts/
 
 # Machine-local Codex configuration
 /.codex/config.toml
+
+# Machine-local Superpowers working state
+.superpowers/

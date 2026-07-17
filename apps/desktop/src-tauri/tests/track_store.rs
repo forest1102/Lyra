@@ -19,6 +19,9 @@ fn draft(source: &str) -> GeneratedMusicDraft {
         source_sha256: "generated-hash".into(),
         canonical_seed: 42,
         audio_validation: "required".into(),
+        recipe_version: None,
+        recipe_json: None,
+        structure_family: "lofi".into(),
     }
 }
 
