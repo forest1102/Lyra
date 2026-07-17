@@ -10,6 +10,7 @@ fn thread_start_is_read_only_offline_and_never_requests_approval() {
     let request = JsonRpcBuilder::thread_start(7, "/tmp/lyra-generation");
     assert_eq!(request["method"], "thread/start");
     assert!(request.get("jsonrpc").is_none());
+    assert_eq!(request["params"]["model"], "gpt-5.6-terra");
     assert_eq!(request["params"]["approvalPolicy"], "never");
     assert_eq!(request["params"]["sandbox"], "read-only");
     assert!(request["params"].get("sandboxPolicy").is_none());
@@ -100,7 +101,7 @@ fn output_schema_is_closed_and_versioned() {
 }
 
 #[test]
-fn generation_prompt_contains_theme_controls_and_code_contract() {
+fn generation_prompt_is_compact_and_orders_controls_contract_recipes_quality_then_example() {
     let prompt = GenerationPrompt::new(GenerationControls {
         theme: "deep-space".into(),
         arrangement: "ambient".into(),
@@ -115,16 +116,23 @@ fn generation_prompt_contains_theme_controls_and_code_contract() {
     assert!(text.contains("__LYRA_SEED__"));
     assert!(text.contains("FileIO"));
     assert!(text.contains("JSON"));
-    for section in [
-        "1. 絶対条件",
-        "2. コントロール変換表",
-        "3. 曲調別レシピ",
-        "4. テーマ別レシピ",
-        "5. 音響・知覚設計",
-        "6. ChucKコード契約",
-        "7. 出力前セルフチェック",
-    ] {
-        assert!(text.contains(section), "missing prompt section: {section}");
+    let sections = [
+        "1. 選択値",
+        "2. 静的検証必須契約",
+        "3. 選択された音楽レシピ",
+        "4. 音響品質",
+        "5. 検証済みChucK例",
+    ];
+    let mut previous = 0;
+    for section in sections {
+        let position = text
+            .find(section)
+            .unwrap_or_else(|| panic!("missing prompt section: {section}"));
+        assert!(
+            position >= previous,
+            "prompt section is out of order: {section}"
+        );
+        previous = position;
     }
     for contract in [
         "MIDI 55〜79",
@@ -140,12 +148,67 @@ fn generation_prompt_contains_theme_controls_and_code_contract() {
         "HPF 120〜250 Hz",
         "LPF 4〜8 kHz",
         "8〜32イベント",
+        "1〜4個",
+        "1〜10000ms",
+        "ちょうど1回",
+        "外部I/O",
     ] {
         assert!(
             text.contains(contract),
             "missing quality contract: {contract}"
         );
     }
+
+    for allowed_class in [
+        "Math", "Std", "SinOsc", "TriOsc", "SawOsc", "PulseOsc", "Blit", "Noise", "CNoise", "ADSR",
+        "Envelope", "LPF", "HPF", "BPF", "BRF", "ResonZ", "DelayL", "Echo", "JCRev", "NRev",
+        "Chorus", "Pan2", "Gain", "Dyno",
+    ] {
+        assert!(
+            text.contains(allowed_class),
+            "missing allowlisted class: {allowed_class}"
+        );
+    }
+}
+
+#[test]
+fn generation_prompt_stays_within_six_kib_for_every_valid_control_combination() {
+    let themes = [
+        "deep-space",
+        "rainy-cabin",
+        "minimal-pulse",
+        "organic-drift",
+    ];
+    let arrangements = ["ambient", "lofi", "minimal-melody"];
+    let levels = ["low", "medium", "high"];
+    let mut cases = 0;
+
+    for theme in themes {
+        for arrangement in arrangements {
+            for brightness in levels {
+                for density in levels {
+                    for motion in levels {
+                        let text = GenerationPrompt::new(GenerationControls {
+                            theme: theme.into(),
+                            arrangement: arrangement.into(),
+                            brightness: brightness.into(),
+                            density: density.into(),
+                            motion: motion.into(),
+                        })
+                        .to_string();
+                        assert!(
+                            text.len() <= 6 * 1024,
+                            "prompt is {} bytes for {theme}/{arrangement}/{brightness}/{density}/{motion}",
+                            text.len()
+                        );
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(cases, 4 * 3 * 3 * 3 * 3);
 }
 
 fn prompt_text(theme: &str, arrangement: &str) -> String {
@@ -242,11 +305,19 @@ fn generation_prompt_provides_a_source_policy_compliant_structure_example() {
         .and_then(|(_, rest)| rest.split_once("\n```").map(|(source, _)| source))
         .expect("prompt must include a ChucK structure example");
 
-    SourcePolicy::v1().validate(source).unwrap();
+    let validation = SourcePolicy::v1().validate(source).unwrap();
+    assert_eq!(validation.voice_count, 2);
+    assert!(source.contains("0.05 => texture.gain;"));
+    assert!(source.contains("0.05 => lead.gain;"));
+    assert!(source.contains("1.0 => master.gain;"));
+    assert!(source.contains("spork ~ textureVoice();"));
+    let spork = source.find("spork ~ textureVoice();").unwrap();
+    assert!(source[..spork].contains("while (true)"));
+    assert!(source[spork..].contains("while (true)"));
 }
 
 #[test]
-fn repair_prompt_preserves_the_original_controls_and_adds_diagnostics() {
+fn repair_prompt_uses_thread_history_and_only_sends_diagnostics_and_fix_conditions() {
     let prompt = GenerationPrompt::new(GenerationControls {
         theme: "rainy-cabin".into(),
         arrangement: "lofi".into(),
@@ -255,12 +326,71 @@ fn repair_prompt_preserves_the_original_controls_and_adds_diagnostics() {
         motion: "low".into(),
     });
     let repair = prompt.repair("forbidden selector: .play");
-    assert!(repair.contains("rainy-cabin"));
-    assert!(repair.contains("arrangement=lofi"));
-    assert!(repair.contains("5. 音響・知覚設計"));
-    assert!(repair.contains("柔らかいコード反復"));
-    assert!(repair.contains("小音量のNoise"));
-    assert!(!repair.contains("2〜8拍の協和パッド"));
-    assert!(repair.contains("forbidden selector: .play"));
+    assert_eq!(repair_diagnostics(&repair), "forbidden selector: .play");
     assert!(repair.contains("修正版JSONだけ"));
+    assert!(repair.contains("同じスレッド"));
+    assert!(!repair.contains("rainy-cabin"));
+    assert!(!repair.contains("arrangement=lofi"));
+    assert!(!repair.contains("柔らかいコード反復"));
+    assert!(!repair.contains("小音量のNoise"));
+    assert!(!repair.contains("Lyra向けの長時間作業用BGM"));
+    assert!(
+        repair.len() < 512,
+        "repair prompt is {} bytes",
+        repair.len()
+    );
+}
+
+#[test]
+fn repair_prompt_truncates_large_ascii_diagnostics() {
+    let prompt = GenerationPrompt::new(GenerationControls {
+        theme: "deep-space".into(),
+        arrangement: "ambient".into(),
+        brightness: "medium".into(),
+        density: "low".into(),
+        motion: "low".into(),
+    });
+    let diagnostics = format!("{}TAIL_MARKER", "x".repeat(48 * 1024));
+
+    let repair = prompt.repair(&diagnostics);
+    let diagnostics = repair_diagnostics(&repair);
+
+    assert!(
+        repair.len() <= 640,
+        "repair prompt is {} bytes",
+        repair.len()
+    );
+    assert_eq!(diagnostics.len(), 384);
+    assert_eq!(diagnostics, format!("{}…", "x".repeat(381)));
+    assert!(!repair.contains("TAIL_MARKER"));
+}
+
+#[test]
+fn repair_prompt_truncates_at_a_utf8_boundary() {
+    let prompt = GenerationPrompt::new(GenerationControls {
+        theme: "deep-space".into(),
+        arrangement: "ambient".into(),
+        brightness: "medium".into(),
+        density: "low".into(),
+        motion: "low".into(),
+    });
+    let diagnostics = "🪐".repeat(200);
+
+    let repair = prompt.repair(&diagnostics);
+    let diagnostics = repair_diagnostics(&repair);
+
+    assert_eq!(diagnostics, format!("{}…", "🪐".repeat(95)));
+    assert!(diagnostics.len() <= 384);
+    assert!(
+        repair.len() <= 640,
+        "repair prompt is {} bytes",
+        repair.len()
+    );
+}
+
+fn repair_diagnostics(repair: &str) -> &str {
+    repair
+        .split_once("検証診断: ")
+        .and_then(|(_, rest)| rest.split_once('\n').map(|(diagnostics, _)| diagnostics))
+        .expect("repair prompt must contain diagnostics")
 }
