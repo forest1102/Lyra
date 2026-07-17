@@ -18,6 +18,20 @@ fn resolve_data_directory(
     e2e_override.unwrap_or(default)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum CloseWindowAction {
+    HideAndKeepAudio,
+    QuitAndStopAudio,
+}
+
+fn close_window_action(close_behavior: &str) -> CloseWindowAction {
+    if close_behavior == "quit" {
+        CloseWindowAction::QuitAndStopAudio
+    } else {
+        CloseWindowAction::HideAndKeepAudio
+    }
+}
+
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -106,18 +120,21 @@ pub fn run() {
             event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } if label == "main" => {
-            let _ = app_handle.emit_to("main", "audio://stop", ());
             let close_behavior = app_handle
                 .try_state::<AppState>()
                 .and_then(|state| state.database.lock().ok()?.get_app_settings().ok())
                 .map(|settings| settings.close_behavior)
                 .unwrap_or_else(|| "hide".into());
-            if close_behavior == "quit" {
-                app_handle.exit(0);
-            } else {
-                api.prevent_close();
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.hide();
+            match close_window_action(&close_behavior) {
+                CloseWindowAction::QuitAndStopAudio => {
+                    let _ = app_handle.emit_to("main", "audio://stop", ());
+                    app_handle.exit(0);
+                }
+                CloseWindowAction::HideAndKeepAudio => {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
                 }
             }
         }
@@ -333,5 +350,26 @@ mod data_directory_tests {
         assert_eq!(state.status, TimerStatus::Running);
         assert_eq!(state.phase, TimerPhase::ShortBreak);
         assert_eq!(state.remaining_seconds, 5 * 60);
+    }
+}
+
+#[cfg(test)]
+mod close_behavior_tests {
+    use super::{close_window_action, CloseWindowAction};
+
+    #[test]
+    fn hiding_the_window_keeps_audio_playing() {
+        assert_eq!(
+            close_window_action("hide"),
+            CloseWindowAction::HideAndKeepAudio
+        );
+    }
+
+    #[test]
+    fn quitting_the_application_stops_audio() {
+        assert_eq!(
+            close_window_action("quit"),
+            CloseWindowAction::QuitAndStopAudio
+        );
     }
 }
